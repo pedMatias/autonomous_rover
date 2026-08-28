@@ -3,10 +3,8 @@
   <name>rover_bridge</name>
   <version>0.1.0</version>
   <description>ROS2 network bridge for the Raspberry Pi rover services.</description>
-  <maintainer email="ws@localhost">Rover project</maintainer>
+  <maintainer email="pedro_mi_guel_@hotmail.com">Rover project</maintainer>
   <license>GPL-3.0-only</license>
-
-  <buildtool_depend>ament_python</buildtool_depend>
 
   <depend>geometry_msgs</depend>
   <depend>rclpy</depend>
@@ -18,4 +16,8 @@
   <test_depend>ament_lint_auto</test_depend>
   <test_depend>ament_lint_common</test_depend>
   <test_depend>python3-pytest</test_depend>
+
+  <export>
+    <build_type>ament_python</build_type>
+  </export>
 </package>

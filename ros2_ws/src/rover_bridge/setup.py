@@ -18,7 +18,7 @@ setup(
     install_requires=["setuptools"],
     zip_safe=True,
     maintainer="Rover project",
-    maintainer_email="ws@localhost",
+    maintainer_email="pedro_mi_guel_@hotmail.com",
     description="ROS2 network bridge for the Raspberry Pi rover services.",
     license="GPL-3.0-only",
     tests_require=["pytest"],

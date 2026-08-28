@@ -133,7 +133,7 @@ workspace is `ros2_ws` in that checkout:
 
 ```bash
 cd ~/ugv_rpi
-source /opt/ros/$ROS_DISTRO/setup.bash
+source /opt/ros/jazzy/setup.bash
 cd ros2_ws
 rosdep install --from-paths src --ignore-src -r -y
 colcon build --symlink-install

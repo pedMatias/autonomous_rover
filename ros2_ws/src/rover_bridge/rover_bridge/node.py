@@ -80,11 +80,9 @@ class RoverBridge(Node):
         for thread in self._threads:
             thread.start()
         self.get_logger().info(
-            "Bridging rover at %s (commands %s, telemetry %s, camera %s)",
-            self._pi_host,
-            self._command_port,
-            self._telemetry_port,
-            self._camera_port,
+            f"Bridging rover at {self._pi_host} "
+            f"(commands {self._command_port}, telemetry {self._telemetry_port}, "
+            f"camera {self._camera_port})"
         )
 
     def _twist_callback(self, message):
@@ -114,13 +112,15 @@ class RoverBridge(Node):
             try:
                 client = self._connect(self._command_port)
                 client.settimeout(self._socket_timeout)
-                self.get_logger().info("Connected to rover command port %s", self._command_port)
+                self.get_logger().info(
+                    f"Connected to rover command port {self._command_port}"
+                )
                 while not self._stop_event.is_set():
                     client.sendall(self._next_command())
                     self._stop_event.wait(self._command_period)
             except (OSError, ValueError) as exc:
                 if not self._stop_event.is_set():
-                    self.get_logger().warning("Rover command connection lost: %s", exc)
+                    self.get_logger().warning(f"Rover command connection lost: {exc}")
             finally:
                 if client is not None:
                     try:
@@ -140,7 +140,7 @@ class RoverBridge(Node):
                 client = self._connect(self._telemetry_port)
                 client.settimeout(self._socket_timeout)
                 self.get_logger().info(
-                    "Connected to rover telemetry port %s", self._telemetry_port
+                    f"Connected to rover telemetry port {self._telemetry_port}"
                 )
                 buffer = b""
                 while not self._stop_event.is_set():
@@ -157,7 +157,9 @@ class RoverBridge(Node):
                             self._handle_telemetry_line(line)
             except (OSError, ValueError) as exc:
                 if not self._stop_event.is_set():
-                    self.get_logger().warning("Rover telemetry connection lost: %s", exc)
+                    self.get_logger().warning(
+                        f"Rover telemetry connection lost: {exc}"
+                    )
             finally:
                 if client is not None:
                     try:
@@ -170,7 +172,7 @@ class RoverBridge(Node):
         try:
             payload = json.loads(line.decode("utf-8"))
         except (UnicodeDecodeError, json.JSONDecodeError) as exc:
-            self.get_logger().warning("Invalid rover telemetry: %s", exc)
+            self.get_logger().warning(f"Invalid rover telemetry: {exc}")
             return
         if not isinstance(payload, dict) or payload.get("type") != "telemetry":
             self.get_logger().warning("Ignoring unexpected rover telemetry payload")
@@ -194,13 +196,15 @@ class RoverBridge(Node):
             try:
                 client = self._connect(self._camera_port)
                 client.settimeout(self._socket_timeout)
-                self.get_logger().info("Connected to rover camera port %s", self._camera_port)
+                self.get_logger().info(
+                    f"Connected to rover camera port {self._camera_port}"
+                )
                 while not self._stop_event.is_set():
                     header, rgb_bytes, depth_bytes = read_rgbd_packet(client)
                     self._publish_rgbd(header, rgb_bytes, depth_bytes)
             except (ConnectionError, OSError, ValueError) as exc:
                 if not self._stop_event.is_set():
-                    self.get_logger().warning("Rover camera connection lost: %s", exc)
+                    self.get_logger().warning(f"Rover camera connection lost: {exc}")
             finally:
                 if client is not None:
                     try:
