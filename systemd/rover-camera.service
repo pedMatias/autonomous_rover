@@ -1,0 +1,18 @@
+[Unit]
+Description=UGV Rover OAK-D camera stream
+After=network-online.target rover-agent.service
+Wants=network-online.target
+Requires=rover-agent.service
+
+[Service]
+Type=simple
+User=ws
+WorkingDirectory=/home/ws/ugv_rpi
+ExecStart=/home/ws/ugv_rpi/ugv-env/bin/python /home/ws/ugv_rpi/camera_stream.py
+Restart=always
+RestartSec=5
+SupplementaryGroups=video
+Environment=PYTHONUNBUFFERED=1
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,17 @@
+[Unit]
+Description=UGV Rover hardware agent
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=ws
+WorkingDirectory=/home/ws/ugv_rpi
+ExecStart=/home/ws/ugv_rpi/ugv-env/bin/python /home/ws/ugv_rpi/rover_agent.py
+Restart=always
+RestartSec=3
+SupplementaryGroups=dialout
+Environment=PYTHONUNBUFFERED=1
+
+[Install]
+WantedBy=multi-user.target

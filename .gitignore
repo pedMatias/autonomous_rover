@@ -1,5 +1,10 @@
 ugv-env/
 __pycache__/
+recordings/
+ros2_ws/build/
+ros2_ws/install/
+ros2_ws/log/
+.pytest_cache/
 tutorial_cn/__pycache__/
 tutorial_en/.ipynb_checkpoints/
 tutorial_cn/.ipynb_checkpoints/

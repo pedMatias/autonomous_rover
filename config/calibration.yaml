@@ -1,0 +1,18 @@
+# Rover-side calibration. Fill these values after the 30A battery upgrade.
+# Encoder counts are cumulative values from the ESP32 feedback stream.
+meters_per_tick_left: null
+meters_per_tick_right: null
+track_width_m: null
+
+# ESP32 feedback signs for the rover's forward direction.
+left_encoder_sign: 1
+right_encoder_sign: 1
+
+# Gyro bias in the ESP32 feedback units. Leave null until measured.
+gyro_bias_x: null
+gyro_bias_y: null
+gyro_bias_z: null
+
+# 3S pack safety thresholds.
+low_battery_warn_v: 10.8
+low_battery_stop_v: 9.9

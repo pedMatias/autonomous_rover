@@ -1,0 +1,16 @@
+rover_bridge:
+  ros__parameters:
+    pi_host: 192.168.50.5
+    command_port: 8765
+    telemetry_port: 8766
+    camera_port: 8770
+    command_rate_hz: 20.0
+    reconnect_delay_s: 1.0
+    socket_timeout_s: 1.0
+    cmd_vel_topic: /cmd_vel
+    telemetry_topic: /rover/telemetry
+    battery_topic: /battery_state
+    rgb_topic: /camera/color/image_raw
+    depth_topic: /camera/depth/image_raw
+    camera_info_topic: /camera/camera_info
+    camera_frame_id: camera_color_optical_frame

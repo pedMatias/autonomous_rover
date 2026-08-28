@@ -1,0 +1,15 @@
+# Network protocol between the Raspberry Pi rover agent and the ROS2 PC.
+bind_host: 0.0.0.0
+command_port: 8765
+telemetry_port: 8766
+
+# The agent stops the motors if no valid command arrives within this interval.
+command_timeout_s: 0.5
+
+# T:1 accepts left/right wheel speeds in m/s.
+max_wheel_speed_mps: 0.5
+wheel_separation_m: 0.31406287112628417
+
+# UART used by the Waveshare Pi 5 / ESP32 link.
+uart_device: /dev/ttyAMA0
+uart_baud: 115200

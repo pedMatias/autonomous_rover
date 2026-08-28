@@ -1,0 +1,8 @@
+# Copy or merge this into /etc/chrony/chrony.conf on the Raspberry Pi.
+# Replace WINDOWS_HOST_LAN_IP with the Windows PC's LAN address, not WSL2's
+# virtual address. WSL2 runs on this same Windows PC and follows its clock.
+server WINDOWS_HOST_LAN_IP iburst prefer
+# Optional fallback if the Windows host is unavailable:
+pool pool.ntp.org iburst
+makestep 0.1 3
+rtcsync
