@@ -29,7 +29,8 @@ ROS2 nodes                                      rover_agent.py
 ```
 
 The ROS2 bridge is [ros2_ws/src/rover_bridge](ros2_ws/src/rover_bridge). It is
-a normal ROS2 Python. It translates between ROS2 messages on the PC and the explicit TCP protocol used by the Pi.
+a normal ROS2 Python node. It translates between ROS2 messages on the PC and
+the explicit TCP protocol used by the Pi.
 
 ## Runtime ownership
 
@@ -158,6 +159,137 @@ ros2 run rover_bridge rover_bridge \
 The bridge reconnects its command, telemetry, and camera sockets independently.
 The Pi watchdog remains the final motor stop mechanism if WSL2, ROS2, or the
 network fails.
+
+## Start communication and control
+
+Use one terminal connected to the Pi and two terminals in WSL2. This is the
+complete production startup sequence after the Pi services and WSL2 workspace
+have been installed.
+
+### 1. Raspberry Pi: start the hardware gateway
+
+Run on the Pi over SSH or its local terminal. Replace the repository path only
+if this checkout lives somewhere else.
+
+```bash
+cd /home/ws/ugv_rpi
+git pull --ff-only
+
+# The factory app must not own the UART at the same time.
+crontab -l
+pgrep -af app.py
+pkill -f '/home/ws/ugv_rpi/ugv-env/bin/python /home/ws/ugv_rpi/app.py' || true
+
+# Install the repository units into systemd, then reload its unit database.
+sudo install -m 0644 systemd/rover-agent.service /etc/systemd/system/rover-agent.service
+sudo install -m 0644 systemd/rover-camera.service /etc/systemd/system/rover-camera.service
+sudo systemctl daemon-reload
+sudo systemctl enable --now rover-agent.service rover-camera.service
+systemctl --no-pager --full status rover-agent.service rover-camera.service
+hostname -I
+ss -ltn | grep -E ':(8765|8766|8770)\b'
+```
+
+Leave this terminal available for diagnostics:
+
+```bash
+journalctl -u rover-agent.service -f
+```
+
+The address printed by `hostname -I` is the value to use as `PI_HOST` in WSL2.
+The default hotspot address is `192.168.50.5`.
+
+### 2. WSL2 terminal 1: build and start the ROS2 bridge
+
+Run on the Windows PC inside WSL2:
+
+```bash
+cd ~/ugv_rpi/ros2_ws
+source /opt/ros/$ROS_DISTRO/setup.bash
+colcon build --symlink-install
+source install/setup.bash
+
+export PI_HOST=192.168.50.5
+ros2 run rover_bridge rover_bridge \
+    --ros-args -p pi_host:=$PI_HOST
+```
+
+Keep this terminal running. The bridge should report independent connections to
+the command, telemetry, and camera ports. Use the Pi address from `hostname -I`
+if it is different from `192.168.50.5`.
+
+### 3. WSL2 terminal 2: verify ROS2 topics
+
+Open a second WSL2 terminal and run:
+
+```bash
+source /opt/ros/$ROS_DISTRO/setup.bash
+source ~/ugv_rpi/ros2_ws/install/setup.bash
+ros2 topic list
+ros2 topic echo /battery_state
+```
+
+In another WSL2 terminal, camera rates can be checked with:
+
+```bash
+source /opt/ros/$ROS_DISTRO/setup.bash
+source ~/ugv_rpi/ros2_ws/install/setup.bash
+ros2 topic hz /camera/color/image_raw
+ros2 topic hz /camera/depth/image_raw
+```
+
+You should see `/battery_state`, `/camera/color/image_raw`,
+`/camera/depth/image_raw`, `/camera/camera_info`, and `/rover/telemetry`.
+
+### 4. WSL2 terminal 3: send a controlled motion command
+
+Start with a slow straight command in a clear area and keep the Pi power switch
+accessible:
+
+```bash
+source /opt/ros/$ROS_DISTRO/setup.bash
+source ~/ugv_rpi/ros2_ws/install/setup.bash
+ros2 topic pub --rate 10 /cmd_vel geometry_msgs/msg/Twist \
+    "{linear: {x: 0.10, y: 0.0, z: 0.0}, angular: {x: 0.0, y: 0.0, z: 0.0}}"
+```
+
+For a slow in-place left turn, use a separate test only after straight motion
+works:
+
+```bash
+ros2 topic pub --rate 10 /cmd_vel geometry_msgs/msg/Twist \
+    "{linear: {x: 0.0, y: 0.0, z: 0.0}, angular: {x: 0.0, y: 0.0, z: 0.20}}"
+```
+
+The factory convention produces opposite-sign wheel speeds for in-place turns;
+the production agent supports that convention.
+
+### 5. Stop motion safely
+
+The bridge repeats the latest command. Therefore, do not stop a nonzero motion
+publisher with `Ctrl+C` before sending a zero command. Send zero first, then
+stop the publisher:
+
+```bash
+ros2 topic pub --once /cmd_vel geometry_msgs/msg/Twist \
+    "{linear: {x: 0.0, y: 0.0, z: 0.0}, angular: {x: 0.0, y: 0.0, z: 0.0}}"
+```
+
+Then press `Ctrl+C` in the motion terminal. To test the emergency stop path,
+kill the bridge instead; closing the command socket makes the Pi send zero
+wheels. Confirm the stop in the Pi agent log.
+
+### 6. Shut down the production stack
+
+Press `Ctrl+C` in the bridge terminal after sending the zero command. The Pi
+services can remain enabled for the next run. To stop them completely:
+
+```bash
+sudo systemctl stop rover-camera.service rover-agent.service
+```
+
+Do this before starting `app.py`, a calibration script, or the standalone
+recorder, because those programs also require `/dev/ttyAMA0`.
 
 ## ROS2 interfaces
 
