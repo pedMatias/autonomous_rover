@@ -12,6 +12,7 @@ import numpy as np
 import rclpy
 from geometry_msgs.msg import Twist
 from rclpy.node import Node
+from rclpy.qos import qos_profile_sensor_data
 from sensor_msgs.msg import BatteryState, CameraInfo, Image
 from std_msgs.msg import String
 
@@ -57,13 +58,15 @@ class RoverBridge(Node):
             BatteryState, str(self.get_parameter("battery_topic").value), 10
         )
         self._rgb_pub = self.create_publisher(
-            Image, str(self.get_parameter("rgb_topic").value), 10
+            Image, str(self.get_parameter("rgb_topic").value), qos_profile_sensor_data
         )
         self._depth_pub = self.create_publisher(
-            Image, str(self.get_parameter("depth_topic").value), 10
+            Image, str(self.get_parameter("depth_topic").value), qos_profile_sensor_data
         )
         self._camera_info_pub = self.create_publisher(
-            CameraInfo, str(self.get_parameter("camera_info_topic").value), 10
+            CameraInfo,
+            str(self.get_parameter("camera_info_topic").value),
+            qos_profile_sensor_data,
         )
         self._cmd_sub = self.create_subscription(
             Twist,

@@ -234,8 +234,8 @@ In another WSL2 terminal, camera rates can be checked with:
 ```bash
 source /opt/ros/$ROS_DISTRO/setup.bash
 source ~/ugv_rpi/ros2_ws/install/setup.bash
-ros2 topic hz /camera/color/image_raw
-ros2 topic hz /camera/depth/image_raw
+ros2 topic hz /camera/color/image_raw --qos-profile sensor_data
+ros2 topic hz /camera/depth/image_raw --qos-profile sensor_data
 ```
 
 You should see `/battery_state`, `/camera/color/image_raw`,
