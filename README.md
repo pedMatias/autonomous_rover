@@ -157,6 +157,9 @@ ros2 run rover_bridge rover_bridge \
 ```
 
 The bridge reconnects its command, telemetry, and camera sockets independently.
+Camera packets use a separate, longer socket timeout because one RGB-D packet
+contains two compressed images and may take longer to arrive than a telemetry
+line. Command and telemetry timeouts remain short.
 The Pi watchdog remains the final motor stop mechanism if WSL2, ROS2, or the
 network fails.
 
@@ -234,9 +237,14 @@ In another WSL2 terminal, camera rates can be checked with:
 ```bash
 source /opt/ros/$ROS_DISTRO/setup.bash
 source ~/ugv_rpi/ros2_ws/install/setup.bash
-ros2 topic hz /camera/color/image_raw --qos-profile sensor_data
-ros2 topic hz /camera/depth/image_raw --qos-profile sensor_data
+ros2 topic hz /camera/color/image_raw
+ros2 topic hz /camera/depth/image_raw
 ```
+
+Some older ROS2 command-line tools do not expose QoS override options. The
+bridge camera publishers use `BEST_EFFORT`; the plain `ros2 topic hz` command
+is the compatible check for those installations. Confirm the publisher QoS
+with `ros2 topic info -v` before measuring the rate.
 
 You should see `/battery_state`, `/camera/color/image_raw`,
 `/camera/depth/image_raw`, `/camera/camera_info`, and `/rover/telemetry`.

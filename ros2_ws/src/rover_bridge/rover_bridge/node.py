@@ -29,6 +29,7 @@ class RoverBridge(Node):
         self.declare_parameter("command_rate_hz", 20.0)
         self.declare_parameter("reconnect_delay_s", 1.0)
         self.declare_parameter("socket_timeout_s", 1.0)
+        self.declare_parameter("camera_socket_timeout_s", 10.0)
         self.declare_parameter("cmd_vel_topic", "/cmd_vel")
         self.declare_parameter("telemetry_topic", "/rover/telemetry")
         self.declare_parameter("battery_topic", "/battery_state")
@@ -44,6 +45,9 @@ class RoverBridge(Node):
         self._command_period = 1.0 / float(self.get_parameter("command_rate_hz").value)
         self._reconnect_delay = float(self.get_parameter("reconnect_delay_s").value)
         self._socket_timeout = float(self.get_parameter("socket_timeout_s").value)
+        self._camera_socket_timeout = float(
+            self.get_parameter("camera_socket_timeout_s").value
+        )
         self._camera_frame_id = str(self.get_parameter("camera_frame_id").value)
         self._stop_event = threading.Event()
 
@@ -198,7 +202,7 @@ class RoverBridge(Node):
             client = None
             try:
                 client = self._connect(self._camera_port)
-                client.settimeout(self._socket_timeout)
+                client.settimeout(self._camera_socket_timeout)
                 self.get_logger().info(
                     f"Connected to rover camera port {self._camera_port}"
                 )

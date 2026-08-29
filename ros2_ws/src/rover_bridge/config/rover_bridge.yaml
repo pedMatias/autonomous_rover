@@ -7,6 +7,7 @@ rover_bridge:
     command_rate_hz: 20.0
     reconnect_delay_s: 1.0
     socket_timeout_s: 1.0
+    camera_socket_timeout_s: 10.0
     cmd_vel_topic: /cmd_vel
     telemetry_topic: /rover/telemetry
     battery_topic: /battery_state

@@ -59,7 +59,7 @@ def serve(args):
                     continue
                 logging.info("Camera client connected: %s", address)
                 try:
-                    client.settimeout(2.0)
+                    client.settimeout(10.0)
                     while True:
                         result = camera.read(timeout=2.0)
                         if result is None:
