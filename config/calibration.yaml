@@ -1,11 +1,11 @@
 meters_per_tick_left: 0.034664082687338504
 meters_per_tick_right: 0.03631593874078276
-track_width_m: null
+track_width_m: 0.33185
 left_encoder_sign: 1
 right_encoder_sign: 1
-gyro_bias_x: null
-gyro_bias_y: null
-gyro_bias_z: null
+gyro_bias_x: -8.615771812080537
+gyro_bias_y: 4.4630872483221475
+gyro_bias_z: -6.340604026845638
 low_battery_warn_v: 10.8
 low_battery_stop_v: 9.9
 straight_trials:
@@ -23,5 +23,19 @@ straight_trials:
   measured_m: 1.55
   meters_per_tick_left: 0.034444444444444444
   meters_per_tick_right: 0.03604651162790698
-arc_trials: []
-last_updated: '2026-08-28 23:34:15'
+arc_trials:
+- left_speed: 0.39
+  right_speed: 0.15
+  duration: 3.0
+  odl_delta: 41
+  odr_delta: 22
+  angle_deg: -117.56
+  track_width_m: 0.3033
+- left_speed: 0.15
+  right_speed: 0.39
+  duration: 3.0
+  odl_delta: 20
+  odr_delta: 40
+  angle_deg: 120.71
+  track_width_m: 0.3604
+last_updated: '2026-08-29 23:29:04'
