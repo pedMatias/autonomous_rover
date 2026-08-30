@@ -13,5 +13,7 @@ rover_bridge:
     battery_topic: /battery_state
     rgb_topic: /camera/color/image_raw
     depth_topic: /camera/depth/image_raw
-    camera_info_topic: /camera/camera_info
-    camera_frame_id: camera_color_optical_frame
+    camera_info_topic: /camera/color/camera_info
+    publish_compressed: true
+    publish_raw: false
+    frame_id: oakd_rgb_optical_frame

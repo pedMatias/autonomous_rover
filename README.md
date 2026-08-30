@@ -21,6 +21,9 @@ ROS2 nodes                                      rover_agent.py
   /cmd_vel                                      camera_stream.py
   RTAB-Map                                      BaseController -> UART
   Nav2                                          /dev/ttyAMA0 -> ESP32
+    rover_bridge                                  JPEG + PNG over TCP
+        /camera/color/image_raw/compressed
+        /camera/depth/image_raw/compressedDepth
         |                                               ^
         | TCP 8765: cmd_vel JSON                         |
         | TCP 8766: telemetry JSON                       |
@@ -31,6 +34,12 @@ ROS2 nodes                                      rover_agent.py
 The ROS2 bridge is [ros2_ws/src/rover_bridge](ros2_ws/src/rover_bridge). It is
 a normal ROS2 Python node. It translates between ROS2 messages on the PC and
 the explicit TCP protocol used by the Pi.
+
+The primary camera interfaces are the compressed topics
+`/camera/color/image_raw/compressed` (`sensor_msgs/CompressedImage`, JPEG) and
+`/camera/depth/image_raw/compressedDepth` (`sensor_msgs/CompressedImage`, PNG
+depth). The bridge forwards the Pi payloads without decoding them. Raw image
+topics remain available for debugging with `publish_raw:=true`.
 
 ## Runtime ownership
 
@@ -141,6 +150,25 @@ colcon build --symlink-install
 source install/setup.bash
 ```
 
+Install the image transport plugins used by the compressed camera topics:
+
+```bash
+sudo apt install -y \
+    ros-jazzy-image-transport-plugins \
+    ros-jazzy-compressed-image-transport \
+    ros-jazzy-compressed-depth-image-transport
+```
+
+Set the Fast DDS large-data transport in every WSL2 shell that runs ROS2:
+
+```bash
+export FASTDDS_BUILTIN_TRANSPORTS=LARGE_DATA
+```
+
+Add the export to `~/.bashrc` or another environment file sourced by all ROS2
+terminals. The bridge and every measurement or republish process must inherit
+the same setting.
+
 Run the bridge with the Pi address used by the current network:
 
 ```bash
@@ -160,6 +188,8 @@ The bridge reconnects its command, telemetry, and camera sockets independently.
 Camera packets use a separate, longer socket timeout because one RGB-D packet
 contains two compressed images and may take longer to arrive than a telemetry
 line. Command and telemetry timeouts remain short.
+The Pi camera server accepts one client at a time, so a raw TCP measurement and
+the bridge must not run simultaneously.
 The Pi watchdog remains the final motor stop mechanism if WSL2, ROS2, or the
 network fails.
 
@@ -239,6 +269,8 @@ source /opt/ros/$ROS_DISTRO/setup.bash
 source ~/ugv_rpi/ros2_ws/install/setup.bash
 ros2 topic hz /camera/color/image_raw
 ros2 topic hz /camera/depth/image_raw
+ros2 topic hz /camera/color/image_raw/compressed
+ros2 topic hz /camera/depth/image_raw/compressedDepth
 ```
 
 Some older ROS2 command-line tools do not expose QoS override options. The
@@ -246,8 +278,29 @@ bridge camera publishers use `BEST_EFFORT`; the plain `ros2 topic hz` command
 is the compatible check for those installations. Confirm the publisher QoS
 with `ros2 topic info -v` before measuring the rate.
 
-You should see `/battery_state`, `/camera/color/image_raw`,
-`/camera/depth/image_raw`, `/camera/camera_info`, and `/rover/telemetry`.
+You should see `/battery_state`, `/camera/color/image_raw/compressed`,
+`/camera/depth/image_raw/compressedDepth`, `/camera/color/camera_info`, and
+`/rover/telemetry`. The raw image topics are present only when the bridge is
+started with `publish_raw:=true`.
+
+To check the compressed depth transport and recover raw images for a consumer:
+
+```bash
+ros2 run image_transport republish compressedDepth raw \
+    --ros-args \
+    -r in/compressedDepth:=/camera/depth/image_raw/compressedDepth \
+    -r out:=/camera/depth/image_raw_check
+ros2 topic hz /camera/depth/image_raw_check
+```
+
+For a legacy raw-image debugging run, enable the optional publishers:
+
+```bash
+ros2 run rover_bridge rover_bridge \
+    --ros-args \
+    -p pi_host:=192.168.50.5 \
+    -p publish_raw:=true
+```
 
 ### 4. WSL2 terminal 3: send a controlled motion command
 

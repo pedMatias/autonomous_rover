@@ -1,7 +1,6 @@
 """ROS2 network bridge for the production Raspberry Pi rover services."""
 
 import json
-import logging
 import math
 import socket
 import threading
@@ -13,10 +12,28 @@ import rclpy
 from geometry_msgs.msg import Twist
 from rclpy.node import Node
 from rclpy.qos import qos_profile_sensor_data
-from sensor_msgs.msg import BatteryState, CameraInfo, Image
+from sensor_msgs.msg import BatteryState, CameraInfo, CompressedImage, Image
 from std_msgs.msg import String
 
 from .protocol import encode_cmd, read_rgbd_packet
+
+
+def build_color_compressed(stamp, frame_id, rgb_jpeg):
+    message = CompressedImage()
+    message.header.stamp = stamp
+    message.header.frame_id = frame_id
+    message.format = "jpeg"
+    message.data = rgb_jpeg
+    return message
+
+
+def build_depth_compressed(stamp, frame_id, depth_png):
+    message = CompressedImage()
+    message.header.stamp = stamp
+    message.header.frame_id = frame_id
+    message.format = "16UC1; compressedDepth png"
+    message.data = depth_png
+    return message
 
 
 class RoverBridge(Node):
@@ -35,8 +52,11 @@ class RoverBridge(Node):
         self.declare_parameter("battery_topic", "/battery_state")
         self.declare_parameter("rgb_topic", "/camera/color/image_raw")
         self.declare_parameter("depth_topic", "/camera/depth/image_raw")
-        self.declare_parameter("camera_info_topic", "/camera/camera_info")
-        self.declare_parameter("camera_frame_id", "camera_color_optical_frame")
+        self.declare_parameter("camera_info_topic", "/camera/color/camera_info")
+        self.declare_parameter("publish_compressed", True)
+        self.declare_parameter("publish_raw", False)
+        self.declare_parameter("frame_id", "oakd_rgb_optical_frame")
+        self.declare_parameter("camera_frame_id", "")
 
         self._pi_host = str(self.get_parameter("pi_host").value)
         self._command_port = int(self.get_parameter("command_port").value)
@@ -48,8 +68,30 @@ class RoverBridge(Node):
         self._camera_socket_timeout = float(
             self.get_parameter("camera_socket_timeout_s").value
         )
-        self._camera_frame_id = str(self.get_parameter("camera_frame_id").value)
+        configured_frame_id = str(self.get_parameter("frame_id").value)
+        legacy_frame_id = str(self.get_parameter("camera_frame_id").value)
+        self._camera_frame_id = legacy_frame_id or configured_frame_id
+        self._publish_compressed = bool(
+            self.get_parameter("publish_compressed").value
+        )
+        self._publish_raw = bool(self.get_parameter("publish_raw").value)
         self._stop_event = threading.Event()
+
+        self._camera_packet_condition = threading.Condition()
+        self._camera_packet = None
+        self._camera_info_lock = threading.Lock()
+        self._latest_camera_info = None
+        self._missing_pi_stamp_logged = False
+
+        self._stats_lock = threading.Lock()
+        self._rx_count = 0
+        self._pub_count = 0
+        self._dropped_frames = 0
+        self._queue_drops = 0
+        self._last_sequence = None
+        self._last_stats_time = time.monotonic()
+        self._last_stats_rx = 0
+        self._last_stats_pub = 0
 
         self._twist_lock = threading.Lock()
         self._latest_twist = (0.0, 0.0)
@@ -61,12 +103,32 @@ class RoverBridge(Node):
         self._battery_pub = self.create_publisher(
             BatteryState, str(self.get_parameter("battery_topic").value), 10
         )
-        self._rgb_pub = self.create_publisher(
-            Image, str(self.get_parameter("rgb_topic").value), qos_profile_sensor_data
-        )
-        self._depth_pub = self.create_publisher(
-            Image, str(self.get_parameter("depth_topic").value), qos_profile_sensor_data
-        )
+        self._rgb_pub = None
+        self._depth_pub = None
+        if self._publish_raw:
+            self._rgb_pub = self.create_publisher(
+                Image,
+                str(self.get_parameter("rgb_topic").value),
+                qos_profile_sensor_data,
+            )
+            self._depth_pub = self.create_publisher(
+                Image,
+                str(self.get_parameter("depth_topic").value),
+                qos_profile_sensor_data,
+            )
+        self._color_compressed_pub = None
+        self._depth_compressed_pub = None
+        if self._publish_compressed:
+            self._color_compressed_pub = self.create_publisher(
+                CompressedImage,
+                "/camera/color/image_raw/compressed",
+                qos_profile_sensor_data,
+            )
+            self._depth_compressed_pub = self.create_publisher(
+                CompressedImage,
+                "/camera/depth/image_raw/compressedDepth",
+                qos_profile_sensor_data,
+            )
         self._camera_info_pub = self.create_publisher(
             CameraInfo,
             str(self.get_parameter("camera_info_topic").value),
@@ -78,11 +140,20 @@ class RoverBridge(Node):
             self._twist_callback,
             10,
         )
+        self._camera_info_timer = self.create_timer(1.0, self._publish_camera_info)
+        self._stats_timer = self.create_timer(5.0, self._log_camera_stats)
 
         self._threads = [
             threading.Thread(target=self._command_loop, name="rover-command", daemon=True),
             threading.Thread(target=self._telemetry_loop, name="rover-telemetry", daemon=True),
-            threading.Thread(target=self._camera_loop, name="rover-camera", daemon=True),
+            threading.Thread(
+                target=self._camera_reader_loop, name="rover-camera-reader", daemon=True
+            ),
+            threading.Thread(
+                target=self._camera_publisher_loop,
+                name="rover-camera-publisher",
+                daemon=True,
+            ),
         ]
         for thread in self._threads:
             thread.start()
@@ -197,7 +268,7 @@ class RoverBridge(Node):
             battery.present = True
             self._battery_pub.publish(battery)
 
-    def _camera_loop(self):
+    def _camera_reader_loop(self):
         while not self._stop_event.is_set():
             client = None
             try:
@@ -207,8 +278,14 @@ class RoverBridge(Node):
                     f"Connected to rover camera port {self._camera_port}"
                 )
                 while not self._stop_event.is_set():
-                    header, rgb_bytes, depth_bytes = read_rgbd_packet(client)
-                    self._publish_rgbd(header, rgb_bytes, depth_bytes)
+                    packet = read_rgbd_packet(client)
+                    self._record_received(packet[0])
+                    with self._camera_packet_condition:
+                        if self._camera_packet is not None:
+                            with self._stats_lock:
+                                self._queue_drops += 1
+                        self._camera_packet = packet
+                        self._camera_packet_condition.notify()
             except (ConnectionError, OSError, ValueError) as exc:
                 if not self._stop_event.is_set():
                     self.get_logger().warning(f"Rover camera connection lost: {exc}")
@@ -220,7 +297,52 @@ class RoverBridge(Node):
                         pass
             self._stop_event.wait(self._reconnect_delay)
 
+    def _camera_publisher_loop(self):
+        while not self._stop_event.is_set():
+            with self._camera_packet_condition:
+                while self._camera_packet is None and not self._stop_event.is_set():
+                    self._camera_packet_condition.wait(timeout=0.5)
+                if self._stop_event.is_set():
+                    return
+                packet = self._camera_packet
+                self._camera_packet = None
+            try:
+                self._publish_rgbd(*packet)
+            except (ValueError, TypeError) as exc:
+                self.get_logger().warning(f"Could not publish rover RGB-D packet: {exc}")
+
+    def _record_received(self, header):
+        with self._stats_lock:
+            self._rx_count += 1
+            sequence = header.get("seq")
+            if isinstance(sequence, int):
+                if (
+                    self._last_sequence is not None
+                    and sequence > self._last_sequence + 1
+                ):
+                    self._dropped_frames += sequence - self._last_sequence - 1
+                self._last_sequence = sequence
+
     def _publish_rgbd(self, header, rgb_bytes, depth_bytes):
+        stamp = self._stamp_from(header)
+        if self._publish_compressed:
+            self._color_compressed_pub.publish(
+                build_color_compressed(stamp, self._camera_frame_id, rgb_bytes)
+            )
+            self._depth_compressed_pub.publish(
+                build_depth_compressed(stamp, self._camera_frame_id, depth_bytes)
+            )
+
+        if self._publish_raw:
+            self._publish_raw_rgbd(header, stamp, rgb_bytes, depth_bytes)
+
+        info_msg = self._camera_info_message(header.get("camera_info"), stamp)
+        with self._camera_info_lock:
+            self._latest_camera_info = info_msg
+        with self._stats_lock:
+            self._pub_count += 1
+
+    def _publish_raw_rgbd(self, header, stamp, rgb_bytes, depth_bytes):
         rgb = cv2.imdecode(np.frombuffer(rgb_bytes, dtype=np.uint8), cv2.IMREAD_COLOR)
         depth = cv2.imdecode(
             np.frombuffer(depth_bytes, dtype=np.uint8), cv2.IMREAD_UNCHANGED
@@ -233,7 +355,6 @@ class RoverBridge(Node):
             depth = depth.astype(np.uint16)
         rgb = np.ascontiguousarray(rgb)
         depth = np.ascontiguousarray(depth)
-        stamp = self._stamp(header.get("ts"))
 
         rgb_msg = Image()
         rgb_msg.header.stamp = stamp
@@ -253,10 +374,31 @@ class RoverBridge(Node):
         depth_msg.step = depth_msg.width * 2
         depth_msg.data = depth.tobytes()
 
-        info_msg = self._camera_info_message(header.get("camera_info"), stamp)
         self._rgb_pub.publish(rgb_msg)
         self._depth_pub.publish(depth_msg)
-        self._camera_info_pub.publish(info_msg)
+
+    def _publish_camera_info(self):
+        with self._camera_info_lock:
+            info_msg = self._latest_camera_info
+        if info_msg is not None:
+            self._camera_info_pub.publish(info_msg)
+
+    def _log_camera_stats(self):
+        now = time.monotonic()
+        with self._stats_lock:
+            elapsed = max(now - self._last_stats_time, 1e-9)
+            rx_fps = (self._rx_count - self._last_stats_rx) / elapsed
+            pub_fps = (self._pub_count - self._last_stats_pub) / elapsed
+            dropped_frames = self._dropped_frames
+            queue_drops = self._queue_drops
+            self._last_stats_time = now
+            self._last_stats_rx = self._rx_count
+            self._last_stats_pub = self._pub_count
+        self.get_logger().info(
+            "Camera stats: "
+            f"rx_fps={rx_fps:.2f}, pub_fps={pub_fps:.2f}, "
+            f"dropped_frames={dropped_frames}, queue_drops={queue_drops}"
+        )
 
     def _camera_info_message(self, info, stamp):
         if not isinstance(info, dict):
@@ -290,8 +432,21 @@ class RoverBridge(Node):
         stamp.nanosec = nanoseconds
         return stamp
 
+    def _stamp_from(self, header):
+        timestamp = header.get("stamp")
+        if timestamp is None:
+            timestamp = header.get("ts")
+        if timestamp is None and not self._missing_pi_stamp_logged:
+            self.get_logger().warning(
+                "Rover camera packet has no Pi timestamp; using WSL2 arrival time"
+            )
+            self._missing_pi_stamp_logged = True
+        return self._stamp(timestamp)
+
     def destroy_node(self):
         self._stop_event.set()
+        with self._camera_packet_condition:
+            self._camera_packet_condition.notify_all()
         for thread in self._threads:
             thread.join(timeout=2.0)
         return super().destroy_node()

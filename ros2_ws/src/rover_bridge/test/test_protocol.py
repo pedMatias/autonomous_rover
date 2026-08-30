@@ -20,6 +20,8 @@ class ProtocolTests(unittest.TestCase):
         try:
             header = {
                 "type": "rgbd",
+                "stamp": 1710000000.25,
+                "seq": 42,
                 "ts": 1710000000.25,
                 "rgb_bytes": 3,
                 "depth_bytes": 2,
@@ -40,6 +42,8 @@ class ProtocolTests(unittest.TestCase):
             )
             result = read_rgbd_packet(receiver)
             self.assertEqual(result, (header, b"rgb", b"\x01\x02"))
+            self.assertEqual(result[0]["stamp"], 1710000000.25)
+            self.assertEqual(result[0]["seq"], 42)
         finally:
             receiver.close()
             sender.close()
