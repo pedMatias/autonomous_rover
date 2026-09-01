@@ -1,11 +1,11 @@
 # Phase 1: Compressed Streaming Bridge
 
-**Status:** WSL2 implementation complete; Pi-side streamer changes are intentionally not included in this checkout.  
+**Status:** WSL2 and Pi streamer implementation complete; live Pi validation pending.
 **Date:** 2026-08-30
 
 ## Goal
 
-Forward the JPEG RGB and PNG `uint16` depth payloads already produced by the Raspberry Pi directly into ROS2 `sensor_msgs/msg/CompressedImage` messages. This avoids decoding and republishing approximately 1.5 MB of raw image data per RGB-D pair inside the WSL2 bridge.
+Forward the JPEG RGB and ROS2 `compressedDepth` PNG payloads produced by the Raspberry Pi directly into ROS2 `sensor_msgs/msg/CompressedImage` messages. This avoids decoding and republishing approximately 1.5 MB of raw image data per RGB-D pair inside the WSL2 bridge.
 
 ## WSL2 Implementation
 
@@ -15,7 +15,8 @@ The bridge in `ros2_ws/src/rover_bridge` now:
 - Uses a size-one, lock-guarded mailbox. A newly received packet replaces an older unread packet, so stale frames do not accumulate behind DDS delivery.
 - Publishes from a separate publisher thread, preventing ROS2 publication work from blocking TCP reads.
 - Publishes JPEG RGB on `/camera/color/image_raw/compressed` with format `jpeg`.
-- Publishes PNG depth on `/camera/depth/image_raw/compressedDepth` with format `16UC1; compressedDepth png`.
+- Publishes ROS2 compressed-depth PNG on `/camera/depth/image_raw/compressedDepth` with format `16UC1; compressedDepth png`.
+- Uses `RELIABLE` and `VOLATILE` QoS for the compressed publishers so standard `image_transport` subscribers can connect.
 - Keeps the previous raw image publishers behind `publish_raw:=true`.
 - Enables compressed publishing by default with `publish_compressed:=true`.
 - Publishes the latest camera info at 1 Hz on `/camera/color/camera_info` instead of once for every frame.
@@ -23,7 +24,12 @@ The bridge in `ros2_ws/src/rover_bridge` now:
 - Tracks received frames, successfully published frames, source sequence gaps, and mailbox replacements.
 - Logs `rx_fps`, `pub_fps`, `dropped_frames`, and `queue_drops` every 5 seconds.
 
-The bridge does not modify or require a change to the Pi streamer for the current `ts` header. If the Pi later adds `stamp` and `seq`, this WSL2 bridge will use them automatically and account for sequence gaps.
+The Pi streamer now adds the ROS2 compressed-depth config header, plus `stamp`
+and `seq` fields. The bridge remains compatible with older bare-PNG packets and
+legacy `ts` headers.
+
+Pi deployment and service restart commands are in
+[pi_deployment.md](pi_deployment.md).
 
 ## Parameters
 
@@ -40,6 +46,9 @@ The legacy raw topic parameters remain available:
 rgb_topic: /camera/color/image_raw
 depth_topic: /camera/depth/image_raw
 ```
+
+Compressed publishers use `RELIABLE` QoS. Optional raw debug publishers use
+the sensor-data `BEST_EFFORT` profile.
 
 ## WSL2 Prerequisites
 
@@ -93,7 +102,8 @@ The pre-Phase-1 raw measurements showed that the Pi-to-WSL2 TCP path itself was 
 
 ## Compressed Depth Decision
 
-The bridge forwards the Pi PNG depth bytes unchanged using the standard compressed-depth format string:
+The Pi now prepends the standard 12-byte compressed-depth config header to the
+PNG. The bridge forwards the resulting payload unchanged using:
 
 ```text
 16UC1; compressedDepth png
@@ -102,14 +112,16 @@ The bridge forwards the Pi PNG depth bytes unchanged using the standard compress
 The required first live validation is:
 
 ```bash
-ros2 run image_transport republish compressedDepth raw \
+ros2 run image_transport republish \
   --ros-args \
+  -p in_transport:=compressedDepth \
+  -p out_transport:=raw \
   -r in/compressedDepth:=/camera/depth/image_raw/compressedDepth \
   -r out:=/camera/depth/image_raw_check
 ros2 topic hz /camera/depth/image_raw_check
 ```
 
-If the republished depth flows and contains sane values, the passthrough convention is confirmed. If the plugin rejects the payload or produces invalid values, the WSL2 fallback is to decode depth in the publisher thread and publish raw `16UC1` depth while retaining compressed RGB forwarding.
+If the republished depth flows and contains sane values, the passthrough convention is confirmed. The WSL2 raw-debug path also strips the 12-byte header before OpenCV decoding.
 
 ## Live Validation Procedure
 

@@ -11,11 +11,11 @@ import numpy as np
 import rclpy
 from geometry_msgs.msg import Twist
 from rclpy.node import Node
-from rclpy.qos import qos_profile_sensor_data
+from rclpy.qos import QoSProfile, ReliabilityPolicy, qos_profile_sensor_data
 from sensor_msgs.msg import BatteryState, CameraInfo, CompressedImage, Image
 from std_msgs.msg import String
 
-from .protocol import encode_cmd, read_rgbd_packet
+from .protocol import depth_png_bytes, encode_cmd, read_rgbd_packet
 
 
 def build_color_compressed(stamp, frame_id, rgb_jpeg):
@@ -119,15 +119,19 @@ class RoverBridge(Node):
         self._color_compressed_pub = None
         self._depth_compressed_pub = None
         if self._publish_compressed:
+            compressed_qos = QoSProfile(
+                depth=10,
+                reliability=ReliabilityPolicy.RELIABLE,
+            )
             self._color_compressed_pub = self.create_publisher(
                 CompressedImage,
                 "/camera/color/image_raw/compressed",
-                qos_profile_sensor_data,
+                compressed_qos,
             )
             self._depth_compressed_pub = self.create_publisher(
                 CompressedImage,
                 "/camera/depth/image_raw/compressedDepth",
-                qos_profile_sensor_data,
+                compressed_qos,
             )
         self._camera_info_pub = self.create_publisher(
             CameraInfo,
@@ -344,8 +348,9 @@ class RoverBridge(Node):
 
     def _publish_raw_rgbd(self, header, stamp, rgb_bytes, depth_bytes):
         rgb = cv2.imdecode(np.frombuffer(rgb_bytes, dtype=np.uint8), cv2.IMREAD_COLOR)
+        depth_png = depth_png_bytes(depth_bytes)
         depth = cv2.imdecode(
-            np.frombuffer(depth_bytes, dtype=np.uint8), cv2.IMREAD_UNCHANGED
+            np.frombuffer(depth_png, dtype=np.uint8), cv2.IMREAD_UNCHANGED
         )
         if rgb is None or depth is None:
             raise ValueError("could not decode rover RGB-D packet")

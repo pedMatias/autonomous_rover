@@ -21,7 +21,7 @@ ROS2 nodes                                      rover_agent.py
   /cmd_vel                                      camera_stream.py
   RTAB-Map                                      BaseController -> UART
   Nav2                                          /dev/ttyAMA0 -> ESP32
-    rover_bridge                                  JPEG + PNG over TCP
+    rover_bridge                                  JPEG + compressedDepth PNG over TCP
         /camera/color/image_raw/compressed
         /camera/depth/image_raw/compressedDepth
         |                                               ^
@@ -37,9 +37,9 @@ the explicit TCP protocol used by the Pi.
 
 The primary camera interfaces are the compressed topics
 `/camera/color/image_raw/compressed` (`sensor_msgs/CompressedImage`, JPEG) and
-`/camera/depth/image_raw/compressedDepth` (`sensor_msgs/CompressedImage`, PNG
-depth). The bridge forwards the Pi payloads without decoding them. Raw image
-topics remain available for debugging with `publish_raw:=true`.
+`/camera/depth/image_raw/compressedDepth` (`sensor_msgs/CompressedImage`, ROS2
+compressedDepth PNG). The bridge forwards the Pi payloads without decoding
+them. Raw image topics remain available for debugging with `publish_raw:=true`.
 
 ## Runtime ownership
 
@@ -273,10 +273,10 @@ ros2 topic hz /camera/color/image_raw/compressed
 ros2 topic hz /camera/depth/image_raw/compressedDepth
 ```
 
-Some older ROS2 command-line tools do not expose QoS override options. The
-bridge camera publishers use `BEST_EFFORT`; the plain `ros2 topic hz` command
-is the compatible check for those installations. Confirm the publisher QoS
-with `ros2 topic info -v` before measuring the rate.
+The compressed bridge publishers use `RELIABLE` QoS so standard image transport
+subscribers can connect. Optional raw debug publishers use sensor-data
+`BEST_EFFORT` QoS. Confirm the publisher QoS with `ros2 topic info -v` before
+measuring the rate.
 
 You should see `/battery_state`, `/camera/color/image_raw/compressed`,
 `/camera/depth/image_raw/compressedDepth`, `/camera/color/camera_info`, and
@@ -286,8 +286,10 @@ started with `publish_raw:=true`.
 To check the compressed depth transport and recover raw images for a consumer:
 
 ```bash
-ros2 run image_transport republish compressedDepth raw \
+ros2 run image_transport republish \
     --ros-args \
+    -p in_transport:=compressedDepth \
+    -p out_transport:=raw \
     -r in/compressedDepth:=/camera/depth/image_raw/compressedDepth \
     -r out:=/camera/depth/image_raw_check
 ros2 topic hz /camera/depth/image_raw_check

@@ -5,12 +5,12 @@ Frames are sent as a length-prefixed binary packet over TCP. Each packet is:
     4-byte big-endian JSON-header length
     JSON header with timestamps, shapes, dtypes, and payload lengths
     JPEG RGB payload
-    PNG depth payload (uint16 millimetres)
+    ROS compressedDepth payload (12-byte config header + PNG uint16 millimetres)
 
-The ROS2 PC can decode the packets and publish sensor_msgs/Image and
-sensor_msgs/CameraInfo. PNG depth avoids sending raw 640x400 uint16 frames at
-15 FPS over Wi-Fi. The OAK-D performs stereo matching onboard; this process
-only compresses and forwards the resulting frames.
+The ROS2 PC can forward the packets as sensor_msgs/CompressedImage and publish
+sensor_msgs/CameraInfo. Compressed depth avoids sending raw 640x400 uint16
+frames at 15 FPS over Wi-Fi. The OAK-D performs stereo matching onboard; this
+process only compresses and forwards the resulting frames.
 """
 import argparse
 import json
@@ -23,6 +23,7 @@ import time
 import cv2
 
 from recorder.oak_camera import OakCamera
+from camera_stream_protocol import build_compressed_depth_payload
 
 
 REPO_ROOT = os.path.dirname(os.path.realpath(__file__))
@@ -51,6 +52,7 @@ def serve(args):
         server.listen(1)
         server.settimeout(1.0)
         logging.info("OAK-D stream listening on %s:%s", args.bind_host, args.port)
+        sequence = 0
         try:
             while True:
                 try:
@@ -77,12 +79,16 @@ def serve(args):
                             logging.warning("Failed to encode an RGB/depth frame")
                             continue
                         rgb_bytes = rgb_encoded.tobytes()
-                        depth_bytes = depth_encoded.tobytes()
+                        depth_bytes = build_compressed_depth_payload(
+                            depth_encoded.tobytes()
+                        )
                         send_packet(client, {
                             "type": "rgbd",
+                            "stamp": timestamp,
+                            "seq": sequence,
                             "ts": timestamp,
                             "rgb_encoding": "jpeg_bgr8",
-                            "depth_encoding": "png_16uc1_mm",
+                            "depth_encoding": "compressed_depth_16uc1_png",
                             "rgb_width": rgb_frame.shape[1],
                             "rgb_height": rgb_frame.shape[0],
                             "depth_width": depth_frame.shape[1],
@@ -91,6 +97,7 @@ def serve(args):
                             "depth_bytes": len(depth_bytes),
                             "camera_info": camera_info,
                         }, rgb_bytes, depth_bytes)
+                        sequence += 1
                 except (ConnectionError, OSError, socket.timeout) as exc:
                     logging.info("Camera client disconnected: %s", exc)
                 finally:

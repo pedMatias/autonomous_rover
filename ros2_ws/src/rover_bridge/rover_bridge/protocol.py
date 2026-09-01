@@ -7,6 +7,8 @@ import struct
 
 MAX_HEADER_BYTES = 1024 * 1024
 MAX_PAYLOAD_BYTES = 64 * 1024 * 1024
+COMPRESSED_DEPTH_HEADER_SIZE = 12
+PNG_SIGNATURE = b"\x89PNG\r\n\x1a\n"
 
 
 def encode_cmd(seq, vx, wz):
@@ -55,3 +57,15 @@ def read_rgbd_packet(sock):
         raise ValueError("RGB-D payload is too large")
 
     return header, recv_exact(sock, rgb_size), recv_exact(sock, depth_size)
+
+
+def depth_png_bytes(depth_payload):
+    """Return PNG bytes from either a ROS compressedDepth or legacy payload."""
+    if depth_payload.startswith(PNG_SIGNATURE):
+        return depth_payload
+    if (
+        len(depth_payload) > COMPRESSED_DEPTH_HEADER_SIZE
+        and depth_payload[COMPRESSED_DEPTH_HEADER_SIZE:].startswith(PNG_SIGNATURE)
+    ):
+        return depth_payload[COMPRESSED_DEPTH_HEADER_SIZE:]
+    raise ValueError("depth payload is neither PNG nor ROS compressedDepth PNG")

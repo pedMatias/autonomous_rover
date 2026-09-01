@@ -3,7 +3,7 @@ import socket
 import struct
 import unittest
 
-from rover_bridge.protocol import encode_cmd, read_rgbd_packet
+from rover_bridge.protocol import depth_png_bytes, encode_cmd, read_rgbd_packet
 
 
 class ProtocolTests(unittest.TestCase):
@@ -47,6 +47,13 @@ class ProtocolTests(unittest.TestCase):
         finally:
             receiver.close()
             sender.close()
+
+    def test_depth_png_bytes_accepts_legacy_and_compressed_depth_payloads(self):
+        png = b"\x89PNG\r\n\x1a\nimage"
+        compressed_depth = struct.pack("<iff", 0, 0.0, 0.0) + png
+
+        self.assertEqual(depth_png_bytes(png), png)
+        self.assertEqual(depth_png_bytes(compressed_depth), png)
 
 
 if __name__ == "__main__":

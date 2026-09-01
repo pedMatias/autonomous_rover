@@ -2,6 +2,9 @@
 
 Run these tests from WSL2. The Raspberry Pi must be running `rover-camera.service` for the live tests.
 
+Deploy the Pi-side payload change first using
+[pi_deployment.md](pi_deployment.md).
+
 Set the Pi address used by the current network:
 
 ```bash
@@ -15,7 +18,7 @@ The Pi camera server accepts one TCP client. Stop the bridge before running the 
 
 ```bash
 cd ~/projects/autonomous_rover
-source /opt/ros/$ROS_DISTRO/setup.bash
+source /opt/ros/jazzy/setup.bash
 source ros2_ws/install/setup.bash
 ```
 
@@ -158,9 +161,13 @@ Expected topics:
 Expected image publisher QoS:
 
 ```text
-Reliability: BEST_EFFORT
+Reliability: RELIABLE
 Durability: VOLATILE
 ```
+
+The compressed publishers use `RELIABLE` so that the standard
+`image_transport` republisher can subscribe. Optional raw debug publishers,
+enabled with `publish_raw:=true`, continue to use sensor-data `BEST_EFFORT` QoS.
 
 ## 7. Measure Compressed Topic Rates
 
@@ -221,11 +228,16 @@ source /opt/ros/$ROS_DISTRO/setup.bash
 source ros2_ws/install/setup.bash
 export FASTDDS_BUILTIN_TRANSPORTS=LARGE_DATA
 
-ros2 run image_transport republish compressedDepth raw \
+ros2 run image_transport republish \
   --ros-args \
+  -p in_transport:=compressedDepth \
+  -p out_transport:=raw \
   -r in/compressedDepth:=/camera/depth/image_raw/compressedDepth \
   -r out:=/camera/depth/image_raw_check
 ```
+
+Confirm that the republisher reports `in_transport` as `compressedDepth` and
+`out_transport` as `raw` before checking the output topic.
 
 In another terminal, measure the republished topic:
 

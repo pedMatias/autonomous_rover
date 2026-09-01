@@ -14,7 +14,7 @@ RTAB-Map bring-up — those are Phase 1.5/2 items.
 
 | Piece | Path | Today |
 |---|---|---|
-| Pi streamer | `camera_stream.py` | JPEG-encodes RGB, PNG-encodes `uint16` depth, sends length-prefixed JSON header + both payloads over TCP :8770 (`send_packet`). Already emits industry-standard compressed payloads. |
+| Pi streamer | `camera_stream.py` | JPEG-encodes RGB, emits ROS2 compressedDepth metadata + PNG `uint16` depth, and sends the length-prefixed JSON header plus both payloads over TCP :8770 (`send_packet`). |
 | Wire protocol | `ros2_ws/src/rover_bridge/rover_bridge/protocol.py` | `read_rgbd_packet(sock)` → `(header, rgb_bytes, depth_bytes)`. Fine as-is. |
 | Bridge node | `ros2_ws/src/rover_bridge/rover_bridge/node.py` | Single-threaded loop: blocking `read_rgbd_packet` → `_publish_rgbd` → `cv2.imdecode` both streams → builds raw `sensor_msgs/Image` (≈1.5 MB/pair) + per-frame `CameraInfo`, all on `qos_profile_sensor_data`. |
 | Tests | `ros2_ws/src/rover_bridge/test/test_protocol.py` | Protocol round-trip tests exist — pattern to reuse. |
@@ -26,8 +26,8 @@ WSL2, amplified by `ros2 topic hz` as a slow Python observer.
 **Target architecture after Phase 1:**
 
 ```text
-Pi camera_stream.py (unchanged behavior)
-  │ JPEG + PNG payloads, ~65 KB/pair
+Pi camera_stream.py
+  │ JPEG + compressedDepth PNG payloads
   ▼ TCP :8770
 rover_bridge (WSL2)
   ├─ reader thread:   read_rgbd_packet → size-1 mailbox (drop-stale)
@@ -66,7 +66,8 @@ The bridge currently stamps messages at WSL2 arrival time. That drifts from any 
 Pi-stamped odometry and breaks TF/SLAM sync later. Cheap fix now:
 
 - `camera_stream.py`: add `"stamp": time.time()` (capture time) and `"seq": n` to the
-  JSON header in `send_packet`.
+  JSON header in `send_packet`, and prepend the ROS2 compressedDepth config header
+  to the PNG depth payload.
 - `protocol.py`: no change needed (header is opaque JSON), but bump `MAX_HEADER_BYTES`
   guard only if header grows meaningfully.
 - `node.py`: if `header["stamp"]` exists, build `builtin_interfaces/Time` from it;
@@ -127,9 +128,12 @@ Before building everything on the depth PNG passthrough, verify that
 
 ```bash
 # bridge running with only the two compressed publishers
-ros2 run image_transport republish compressedDepth raw \
-  --ros-args -r in/compressedDepth:=/camera/depth/image_raw/compressedDepth \
-             -r out:=/camera/depth/image_raw_check
+ros2 run image_transport republish \
+  --ros-args \
+  -p in_transport:=compressedDepth \
+  -p out_transport:=raw \
+  -r in/compressedDepth:=/camera/depth/image_raw/compressedDepth \
+  -r out:=/camera/depth/image_raw_check
 ros2 topic hz /camera/depth/image_raw_check
 ```
 
