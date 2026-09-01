@@ -10,11 +10,15 @@ import cv2
 import numpy as np
 import rclpy
 from geometry_msgs.msg import Twist
+from geometry_msgs.msg import TransformStamped
+from nav_msgs.msg import Odometry
 from rclpy.node import Node
 from rclpy.qos import QoSProfile, ReliabilityPolicy, qos_profile_sensor_data
 from sensor_msgs.msg import BatteryState, CameraInfo, CompressedImage, Image
 from std_msgs.msg import String
+from tf2_ros import TransformBroadcaster
 
+from .odometry import OdometryIntegrator
 from .protocol import depth_png_bytes, encode_cmd, read_rgbd_packet
 
 
@@ -53,6 +57,17 @@ class RoverBridge(Node):
         self.declare_parameter("rgb_topic", "/camera/color/image_raw")
         self.declare_parameter("depth_topic", "/camera/depth/image_raw")
         self.declare_parameter("camera_info_topic", "/camera/color/camera_info")
+        self.declare_parameter("odom_topic", "/odom")
+        self.declare_parameter("odom_frame_id", "odom")
+        self.declare_parameter("base_frame_id", "base_link")
+        self.declare_parameter("meters_per_tick_left", 0.034664082687338504)
+        self.declare_parameter("meters_per_tick_right", 0.03631593874078276)
+        self.declare_parameter("track_width_m", 0.33185)
+        self.declare_parameter("left_encoder_sign", 1)
+        self.declare_parameter("right_encoder_sign", 1)
+        self.declare_parameter("max_encoder_delta_ticks", 200.0)
+        self.declare_parameter("odom_pose_covariance", 0.05)
+        self.declare_parameter("odom_twist_covariance", 0.1)
         self.declare_parameter("publish_compressed", True)
         self.declare_parameter("publish_raw", False)
         self.declare_parameter("frame_id", "oakd_rgb_optical_frame")
@@ -71,6 +86,28 @@ class RoverBridge(Node):
         configured_frame_id = str(self.get_parameter("frame_id").value)
         legacy_frame_id = str(self.get_parameter("camera_frame_id").value)
         self._camera_frame_id = legacy_frame_id or configured_frame_id
+        self._odom_frame_id = str(self.get_parameter("odom_frame_id").value)
+        self._base_frame_id = str(self.get_parameter("base_frame_id").value)
+        self._odom = OdometryIntegrator(
+            meters_per_tick_left=float(self.get_parameter("meters_per_tick_left").value),
+            meters_per_tick_right=float(self.get_parameter("meters_per_tick_right").value),
+            track_width_m=float(self.get_parameter("track_width_m").value),
+            left_encoder_sign=int(self.get_parameter("left_encoder_sign").value),
+            right_encoder_sign=int(self.get_parameter("right_encoder_sign").value),
+            max_encoder_delta_ticks=float(
+                self.get_parameter("max_encoder_delta_ticks").value
+            ),
+        )
+        self._odom_pose_covariance = float(
+            self.get_parameter("odom_pose_covariance").value
+        )
+        self._odom_twist_covariance = float(
+            self.get_parameter("odom_twist_covariance").value
+        )
+        if not math.isfinite(self._odom_pose_covariance) or self._odom_pose_covariance <= 0.0:
+            raise ValueError("odom_pose_covariance must be finite and positive")
+        if not math.isfinite(self._odom_twist_covariance) or self._odom_twist_covariance <= 0.0:
+            raise ValueError("odom_twist_covariance must be finite and positive")
         self._publish_compressed = bool(
             self.get_parameter("publish_compressed").value
         )
@@ -100,6 +137,10 @@ class RoverBridge(Node):
         self._telemetry_pub = self.create_publisher(
             String, str(self.get_parameter("telemetry_topic").value), 10
         )
+        self._odom_pub = self.create_publisher(
+            Odometry, str(self.get_parameter("odom_topic").value), 10
+        )
+        self._tf_broadcaster = TransformBroadcaster(self)
         self._battery_pub = self.create_publisher(
             BatteryState, str(self.get_parameter("battery_topic").value), 10
         )
@@ -264,6 +305,8 @@ class RoverBridge(Node):
         raw.data = json.dumps(payload, separators=(",", ":"))
         self._telemetry_pub.publish(raw)
 
+        self._publish_odometry(payload)
+
         voltage = payload.get("voltage_v")
         if isinstance(voltage, (int, float)) and math.isfinite(voltage):
             battery = BatteryState()
@@ -271,6 +314,59 @@ class RoverBridge(Node):
             battery.voltage = float(voltage)
             battery.present = True
             self._battery_pub.publish(battery)
+
+    def _publish_odometry(self, payload):
+        data = payload.get("data")
+        if not isinstance(data, dict):
+            return
+        left_count = data.get("odl")
+        right_count = data.get("odr")
+        timestamp = payload.get("ts")
+        if not all(isinstance(value, (int, float)) for value in (left_count, right_count, timestamp)):
+            return
+        if not all(math.isfinite(float(value)) for value in (left_count, right_count, timestamp)):
+            self.get_logger().warning("Ignoring non-finite encoder telemetry")
+            return
+        try:
+            state = self._odom.update(left_count, right_count, timestamp)
+        except ValueError as exc:
+            self.get_logger().warning(f"Ignoring invalid encoder telemetry: {exc}")
+            return
+        if self._odom.last_update_reset:
+            self.get_logger().warning(
+                "Resetting odometry baseline after encoder reset or timestamp jump"
+            )
+        stamp = self._stamp(timestamp)
+        message = Odometry()
+        message.header.stamp = stamp
+        message.header.frame_id = self._odom_frame_id
+        message.child_frame_id = self._base_frame_id
+        message.pose.pose.position.x = state.x
+        message.pose.pose.position.y = state.y
+        message.pose.pose.orientation.z = math.sin(state.theta / 2.0)
+        message.pose.pose.orientation.w = math.cos(state.theta / 2.0)
+        message.twist.twist.linear.x = state.linear_velocity
+        message.twist.twist.angular.z = state.angular_velocity
+        message.pose.covariance[0] = self._odom_pose_covariance
+        message.pose.covariance[7] = self._odom_pose_covariance
+        message.pose.covariance[35] = self._odom_pose_covariance
+        message.twist.covariance[0] = self._odom_twist_covariance
+        message.twist.covariance[7] = self._odom_twist_covariance
+        message.twist.covariance[35] = self._odom_twist_covariance
+        self._odom_pub.publish(message)
+
+        transform = TransformStamped()
+        transform.header.stamp = stamp
+        transform.header.frame_id = self._odom_frame_id
+        transform.child_frame_id = self._base_frame_id
+        transform.transform.translation.x = state.x
+        transform.transform.translation.y = state.y
+        transform.transform.rotation.z = message.pose.pose.orientation.z
+        transform.transform.rotation.w = message.pose.pose.orientation.w
+        self._tf_broadcaster.sendTransform(transform)
+
+    def _reset_odometry_baseline(self):
+        self._odom.reset()
 
     def _camera_reader_loop(self):
         while not self._stop_event.is_set():
@@ -299,6 +395,7 @@ class RoverBridge(Node):
                         client.close()
                     except OSError:
                         pass
+                self._reset_odometry_baseline()
             self._stop_event.wait(self._reconnect_delay)
 
     def _camera_publisher_loop(self):

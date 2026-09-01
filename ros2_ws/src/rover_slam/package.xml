@@ -1,0 +1,19 @@
+<?xml version="1.0"?>
+<package format="3">
+  <name>rover_slam</name>
+  <version>0.1.0</version>
+  <description>Launch and validation helpers for the rover RGB-D SLAM workflow.</description>
+  <maintainer email="pedro_mi_guel_@hotmail.com">Rover project</maintainer>
+  <license>GPL-3.0-only</license>
+
+  <exec_depend>image_transport</exec_depend>
+  <exec_depend>launch</exec_depend>
+  <exec_depend>launch_ros</exec_depend>
+  <exec_depend>rover_bridge</exec_depend>
+  <exec_depend>rtabmap_launch</exec_depend>
+  <exec_depend>tf2_ros</exec_depend>
+
+  <export>
+    <build_type>ament_python</build_type>
+  </export>
+</package>

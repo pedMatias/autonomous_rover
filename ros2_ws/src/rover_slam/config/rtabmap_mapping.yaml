@@ -1,0 +1,6 @@
+RGBD/NeighborLinkRefining: "true"
+RGBD/ProximityBySpace: "true"
+RGBD/ProximityByTime: "false"
+Reg/Strategy: "0"
+Optimizer/Strategy: "2"
+Grid/FromDepth: "true"
