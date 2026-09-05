@@ -14,6 +14,10 @@ setup(
         ),
         ("share/" + package_name, ["package.xml"]),
         ("share/" + package_name + "/config", ["config/rover_bridge.yaml"]),
+        (
+            "share/" + package_name + "/config",
+            ["../../../config/calibration.yaml"],
+        ),
     ],
     install_requires=["setuptools"],
     zip_safe=True,

@@ -2,12 +2,16 @@
 
 import json
 import math
+import os
 import socket
 import threading
 import time
+from pathlib import Path
 
 import cv2
 import numpy as np
+import yaml
+from ament_index_python.packages import get_package_share_directory
 import rclpy
 from geometry_msgs.msg import Twist
 from geometry_msgs.msg import TransformStamped
@@ -20,6 +24,52 @@ from tf2_ros import TransformBroadcaster
 
 from .odometry import OdometryIntegrator
 from .protocol import depth_png_bytes, encode_cmd, read_rgbd_packet
+
+
+def default_calibration_file():
+    configured_path = os.environ.get("ROVER_CALIBRATION_FILE")
+    if configured_path:
+        return configured_path
+    source_path = Path(__file__).resolve().parents[4] / "config" / "calibration.yaml"
+    if source_path.exists():
+        return str(source_path)
+    try:
+        return os.path.join(
+            get_package_share_directory("rover_bridge"),
+            "config",
+            "calibration.yaml",
+        )
+    except LookupError:
+        pass
+    return ""
+
+
+def load_calibration(path):
+    if not path:
+        raise ValueError(
+            "calibration_file is empty; set it to the canonical config/calibration.yaml"
+        )
+    try:
+        with open(path, "r") as calibration_stream:
+            calibration = yaml.safe_load(calibration_stream) or {}
+    except OSError as exc:
+        raise ValueError(f"could not read calibration_file {path}: {exc}") from exc
+    if not isinstance(calibration, dict):
+        raise ValueError(f"calibration_file {path} must contain a YAML mapping")
+
+    required = (
+        "meters_per_tick_left",
+        "meters_per_tick_right",
+        "track_width_m",
+        "left_encoder_sign",
+        "right_encoder_sign",
+    )
+    missing = [key for key in required if key not in calibration]
+    if missing:
+        raise ValueError(
+            f"calibration_file {path} is missing: {', '.join(missing)}"
+        )
+    return calibration
 
 
 def build_color_compressed(stamp, frame_id, rgb_jpeg):
@@ -40,6 +90,12 @@ def build_depth_compressed(stamp, frame_id, depth_png):
     return message
 
 
+def fresh_twist(twist, last_update_time, now, timeout):
+    if last_update_time is None or now - last_update_time > timeout:
+        return 0.0, 0.0
+    return twist
+
+
 class RoverBridge(Node):
     def __init__(self):
         super().__init__("rover_bridge")
@@ -52,6 +108,7 @@ class RoverBridge(Node):
         self.declare_parameter("socket_timeout_s", 1.0)
         self.declare_parameter("camera_socket_timeout_s", 10.0)
         self.declare_parameter("cmd_vel_topic", "/cmd_vel")
+        self.declare_parameter("cmd_vel_timeout_s", 0.5)
         self.declare_parameter("telemetry_topic", "/rover/telemetry")
         self.declare_parameter("battery_topic", "/battery_state")
         self.declare_parameter("rgb_topic", "/camera/color/image_raw")
@@ -60,11 +117,7 @@ class RoverBridge(Node):
         self.declare_parameter("odom_topic", "/odom")
         self.declare_parameter("odom_frame_id", "odom")
         self.declare_parameter("base_frame_id", "base_link")
-        self.declare_parameter("meters_per_tick_left", 0.034664082687338504)
-        self.declare_parameter("meters_per_tick_right", 0.03631593874078276)
-        self.declare_parameter("track_width_m", 0.33185)
-        self.declare_parameter("left_encoder_sign", 1)
-        self.declare_parameter("right_encoder_sign", 1)
+        self.declare_parameter("calibration_file", default_calibration_file())
         self.declare_parameter("max_encoder_delta_ticks", 200.0)
         self.declare_parameter("odom_pose_covariance", 0.05)
         self.declare_parameter("odom_twist_covariance", 0.1)
@@ -83,20 +136,31 @@ class RoverBridge(Node):
         self._camera_socket_timeout = float(
             self.get_parameter("camera_socket_timeout_s").value
         )
+        self._cmd_vel_timeout = float(self.get_parameter("cmd_vel_timeout_s").value)
+        if not math.isfinite(self._cmd_vel_timeout) or self._cmd_vel_timeout <= 0.0:
+            raise ValueError("cmd_vel_timeout_s must be finite and positive")
         configured_frame_id = str(self.get_parameter("frame_id").value)
         legacy_frame_id = str(self.get_parameter("camera_frame_id").value)
         self._camera_frame_id = legacy_frame_id or configured_frame_id
         self._odom_frame_id = str(self.get_parameter("odom_frame_id").value)
         self._base_frame_id = str(self.get_parameter("base_frame_id").value)
+        calibration_file = str(self.get_parameter("calibration_file").value)
+        calibration = load_calibration(calibration_file)
         self._odom = OdometryIntegrator(
-            meters_per_tick_left=float(self.get_parameter("meters_per_tick_left").value),
-            meters_per_tick_right=float(self.get_parameter("meters_per_tick_right").value),
-            track_width_m=float(self.get_parameter("track_width_m").value),
-            left_encoder_sign=int(self.get_parameter("left_encoder_sign").value),
-            right_encoder_sign=int(self.get_parameter("right_encoder_sign").value),
+            meters_per_tick_left=float(calibration["meters_per_tick_left"]),
+            meters_per_tick_right=float(calibration["meters_per_tick_right"]),
+            track_width_m=float(calibration["track_width_m"]),
+            left_encoder_sign=int(calibration["left_encoder_sign"]),
+            right_encoder_sign=int(calibration["right_encoder_sign"]),
             max_encoder_delta_ticks=float(
                 self.get_parameter("max_encoder_delta_ticks").value
             ),
+        )
+        self.get_logger().info(
+            f"Using calibration file {calibration_file}: "
+            f"left={calibration['meters_per_tick_left']}, "
+            f"right={calibration['meters_per_tick_right']}, "
+            f"track={calibration['track_width_m']}"
         )
         self._odom_pose_covariance = float(
             self.get_parameter("odom_pose_covariance").value
@@ -132,6 +196,7 @@ class RoverBridge(Node):
 
         self._twist_lock = threading.Lock()
         self._latest_twist = (0.0, 0.0)
+        self._last_twist_time = None
         self._command_seq = 0
 
         self._telemetry_pub = self.create_publisher(
@@ -216,10 +281,18 @@ class RoverBridge(Node):
             return
         with self._twist_lock:
             self._latest_twist = (vx, wz)
+            self._last_twist_time = time.monotonic()
 
     def _next_command(self):
         with self._twist_lock:
-            vx, wz = self._latest_twist
+            twist = self._latest_twist
+            last_twist_time = self._last_twist_time
+        vx, wz = fresh_twist(
+            twist,
+            last_twist_time,
+            time.monotonic(),
+            self._cmd_vel_timeout,
+        )
         seq = self._command_seq
         self._command_seq += 1
         return encode_cmd(seq, vx, wz)
@@ -395,7 +468,6 @@ class RoverBridge(Node):
                         client.close()
                     except OSError:
                         pass
-                self._reset_odometry_baseline()
             self._stop_event.wait(self._reconnect_delay)
 
     def _camera_publisher_loop(self):
@@ -563,7 +635,8 @@ def main(args=None):
         pass
     finally:
         node.destroy_node()
-        rclpy.shutdown()
+        if rclpy.ok():
+            rclpy.shutdown()
 
 
 if __name__ == "__main__":

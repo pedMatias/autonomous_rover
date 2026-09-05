@@ -13,7 +13,7 @@ def generate_launch_description():
     camera_frame = LaunchConfiguration("camera_frame")
 
     return LaunchDescription([
-        DeclareLaunchArgument("pi_host", default_value="192.168.50.5"),
+        DeclareLaunchArgument("pi_host", default_value="192.168.0.12"),
         DeclareLaunchArgument(
             "bridge_config",
             default_value=PathJoinSubstitution([
