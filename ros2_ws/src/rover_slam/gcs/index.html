@@ -1,0 +1,219 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Rover Ground Control</title>
+  <style>
+    @import url("https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Space+Mono:wght@400;700&display=swap");
+
+    :root {
+      color-scheme: dark;
+      --ink: #e8eef0;
+      --muted: #8e9da1;
+      --panel: #172025;
+      --panel-raised: #202c31;
+      --line: #324247;
+      --accent: #d4f05f;
+      --cyan: #70d4d1;
+      --warn: #f4b860;
+      --danger: #f17878;
+      --shadow: 0 22px 60px rgba(0, 0, 0, .25);
+    }
+
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      min-width: 320px;
+      background: #0d1518;
+      color: var(--ink);
+      font-family: "DM Sans", sans-serif;
+    }
+    body::before {
+      position: fixed;
+      inset: 0;
+      z-index: -1;
+      background: linear-gradient(135deg, rgba(112, 212, 209, .07), transparent 35%),
+        repeating-linear-gradient(115deg, transparent 0 72px, rgba(255, 255, 255, .018) 73px 74px);
+      content: "";
+      pointer-events: none;
+    }
+    header, main { width: min(1440px, calc(100% - 40px)); margin: 0 auto; }
+    header {
+      display: flex;
+      align-items: end;
+      justify-content: space-between;
+      gap: 24px;
+      padding: 30px 0 24px;
+    }
+    .eyebrow, .kicker, .metric-label, .topic, .status, .mono { font-family: "Space Mono", monospace; }
+    .eyebrow { margin: 0 0 8px; color: var(--accent); font-size: 11px; letter-spacing: .12em; text-transform: uppercase; }
+    h1 { margin: 0; font-size: clamp(28px, 4vw, 46px); letter-spacing: -.04em; line-height: 1; }
+    .connection { display: flex; align-items: center; gap: 9px; color: var(--muted); font: 12px "Space Mono", monospace; }
+    .dot { width: 9px; height: 9px; border-radius: 50%; background: var(--danger); box-shadow: 0 0 0 4px rgba(241, 120, 120, .12); }
+    .dot.live { background: var(--accent); box-shadow: 0 0 0 4px rgba(212, 240, 95, .12); }
+    .layout { display: grid; grid-template-columns: minmax(0, 1.35fr) minmax(300px, .65fr); gap: 16px; padding-bottom: 34px; }
+    .visuals { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
+    .panel { border: 1px solid var(--line); background: rgba(23, 32, 37, .9); box-shadow: var(--shadow); }
+    .feed-panel { min-width: 0; }
+    .panel-head { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; padding: 16px 17px 13px; border-bottom: 1px solid var(--line); }
+    .kicker { color: var(--muted); font-size: 10px; letter-spacing: .1em; text-transform: uppercase; }
+    .panel-title { margin: 4px 0 0; font-size: 17px; font-weight: 600; }
+    .topic { max-width: 52%; overflow: hidden; color: var(--muted); font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }
+    .feed { position: relative; aspect-ratio: 1 / 1; overflow: hidden; background: #081013; }
+    .feed img { display: block; width: 100%; height: 100%; object-fit: cover; }
+    .feed.depth img { image-rendering: auto; filter: saturate(1.45) contrast(1.08); }
+    .feed-status { position: absolute; left: 12px; bottom: 11px; padding: 5px 8px; border: 1px solid rgba(255,255,255,.16); background: rgba(5, 10, 12, .7); color: var(--muted); font: 10px "Space Mono", monospace; }
+    .feed-status.live { color: var(--accent); }
+    .side { display: grid; align-content: start; gap: 16px; }
+    .metrics { display: grid; grid-template-columns: repeat(2, 1fr); }
+    .metric { min-height: 104px; padding: 17px; border-bottom: 1px solid var(--line); }
+    .metric:nth-child(odd) { border-right: 1px solid var(--line); }
+    .metric:nth-last-child(-n+2) { border-bottom: 0; }
+    .metric-label { color: var(--muted); font-size: 10px; letter-spacing: .08em; text-transform: uppercase; }
+    .metric-value { margin-top: 12px; font: 24px "Space Mono", monospace; color: var(--cyan); }
+    .metric-value.warn { color: var(--warn); }
+    .metric-value small { color: var(--muted); font: 12px "Space Mono", monospace; }
+    .data-list { margin: 0; padding: 4px 17px 13px; }
+    .data-row { display: flex; justify-content: space-between; gap: 16px; padding: 10px 0; border-bottom: 1px solid rgba(50, 66, 71, .7); font-size: 13px; }
+    .data-row:last-child { border-bottom: 0; }
+    .data-row dt { color: var(--muted); }
+    .data-row dd { margin: 0; color: var(--ink); font: 12px "Space Mono", monospace; text-align: right; }
+    .signal-table { width: 100%; border-collapse: collapse; font-size: 12px; }
+    .signal-table th, .signal-table td { padding: 10px 17px; border-bottom: 1px solid rgba(50, 66, 71, .7); text-align: left; }
+    .signal-table th { color: var(--muted); font: 10px "Space Mono", monospace; letter-spacing: .08em; text-transform: uppercase; }
+    .signal-table td:last-child { color: var(--cyan); font-family: "Space Mono", monospace; text-align: right; }
+    .signal-table tr:last-child td { border-bottom: 0; }
+    .trajectory { padding: 13px 17px 17px; }
+    canvas { display: block; width: 100%; height: 190px; background: #101a1e; border: 1px solid var(--line); }
+    .empty { display: grid; height: 100%; place-items: center; color: var(--muted); font: 11px "Space Mono", monospace; }
+    @media (max-width: 980px) { .layout { grid-template-columns: 1fr; } .side { grid-template-columns: repeat(2, minmax(0, 1fr)); } .metrics { grid-column: span 1; } }
+    @media (max-width: 650px) { header, main { width: min(100% - 24px, 1440px); } header { align-items: start; flex-direction: column; padding-top: 22px; } .visuals, .side { grid-template-columns: 1fr; } .topic { max-width: 48%; } }
+  </style>
+</head>
+<body>
+  <header>
+    <div><p class="eyebrow">Autonomous rover / live link</p><h1>Ground control</h1></div>
+    <div class="connection"><span id="connection-dot" class="dot"></span><span id="connection-text">ROS DISCONNECTED</span></div>
+  </header>
+  <main class="layout">
+    <section class="visuals" aria-label="Camera feeds">
+      <article class="panel feed-panel">
+        <div class="panel-head"><div><div class="kicker">Compressed transport</div><h2 class="panel-title">RGB camera</h2></div><div class="topic">/camera/color/image_raw/compressed</div></div>
+        <div class="feed"><img id="rgb-feed" alt="Live RGB camera feed"><div id="rgb-status" class="feed-status">WAITING FOR VIDEO</div></div>
+      </article>
+      <article class="panel feed-panel">
+        <div class="panel-head"><div><div class="kicker">5 Hz local preview</div><h2 class="panel-title">Depth camera</h2></div><div class="topic">/gcs/depth_preview/image_raw</div></div>
+        <div class="feed depth"><img id="depth-feed" alt="Live depth camera feed"><div id="depth-status" class="feed-status">WAITING FOR VIDEO</div></div>
+      </article>
+    </section>
+    <aside class="side">
+      <section class="panel metrics" aria-label="Key telemetry">
+        <div class="metric"><div class="metric-label">Battery</div><div id="battery" class="metric-value">-- <small>V</small></div></div>
+        <div class="metric"><div class="metric-label">Ground speed</div><div id="speed" class="metric-value">-- <small>m/s</small></div></div>
+        <div class="metric"><div class="metric-label">Heading</div><div id="heading" class="metric-value">-- <small>deg</small></div></div>
+        <div class="metric"><div class="metric-label">Telemetry age</div><div id="telemetry-age" class="metric-value warn">-- <small>s</small></div></div>
+      </section>
+      <section class="panel">
+        <div class="panel-head"><div><div class="kicker">Pose estimate</div><h2 class="panel-title">Odometry</h2></div><div class="topic">/odom</div></div>
+        <dl class="data-list">
+          <div class="data-row"><dt>Position X</dt><dd id="odom-x">-- m</dd></div>
+          <div class="data-row"><dt>Position Y</dt><dd id="odom-y">-- m</dd></div>
+          <div class="data-row"><dt>Linear velocity</dt><dd id="odom-v">-- m/s</dd></div>
+          <div class="data-row"><dt>Angular velocity</dt><dd id="odom-w">-- rad/s</dd></div>
+        </dl>
+        <div class="trajectory"><canvas id="trajectory" width="600" height="190" aria-label="Odometry trajectory"></canvas></div>
+      </section>
+      <section class="panel">
+        <div class="panel-head"><div><div class="kicker">Live signals</div><h2 class="panel-title">ROS traffic</h2></div></div>
+        <table class="signal-table"><thead><tr><th>Topic</th><th>Last update</th></tr></thead><tbody>
+          <tr><td>/cmd_vel</td><td id="cmd-vel">--</td></tr>
+          <tr><td>/battery_state</td><td id="battery-state">--</td></tr>
+          <tr><td>/rover/telemetry</td><td id="telemetry-state">--</td></tr>
+          <tr><td>/odom</td><td id="odom-state">--</td></tr>
+        </tbody></table>
+      </section>
+    </aside>
+  </main>
+  <script>
+    const query = new URLSearchParams(window.location.search);
+    const host = window.location.hostname || "localhost";
+    const rosbridgeUrl = query.get("rosbridge") || `ws://${host}:9090`;
+    const videoBase = query.get("video") || `http://${host}:8080`;
+    const streams = {
+      rgb: { topic: query.get("rgb") || "/camera/color/image_raw", type: query.get("rgb_type") || "ros_compressed" },
+      depth: { topic: query.get("depth") || "/gcs/depth_preview/image_raw", type: query.get("depth_type") || "ros_compressed" },
+    };
+    const state = { last: {}, points: [], pose: null };
+    const $ = (id) => document.getElementById(id);
+    const streamUrl = (stream) => `${videoBase}/stream?topic=${stream.topic}&type=${encodeURIComponent(stream.type)}&quality=70&width=720&height=720`;
+    ["rgb", "depth"].forEach((kind) => {
+      const image = $(`${kind}-feed`);
+      image.src = streamUrl(streams[kind]);
+      image.onload = () => { $(`${kind}-status`).textContent = "LIVE / MJPEG"; $(`${kind}-status`).classList.add("live"); };
+      image.onerror = () => { $(`${kind}-status`).textContent = "VIDEO UNAVAILABLE"; $(`${kind}-status`).classList.remove("live"); };
+    });
+
+    function stamp(topic) {
+      state.last[topic] = performance.now();
+      const ids = { "/cmd_vel": "cmd-vel", "/battery_state": "battery-state", "/rover/telemetry": "telemetry-state", "/odom": "odom-state" };
+      if (ids[topic]) $(ids[topic]).textContent = "LIVE";
+    }
+    function number(value, digits = 2) { return Number.isFinite(Number(value)) ? Number(value).toFixed(digits) : "--"; }
+    function setText(id, value) { $(id).textContent = value; }
+    function quaternionYaw(q) { return Math.atan2(2 * (q.w * q.z + q.x * q.y), 1 - 2 * (q.y * q.y + q.z * q.z)); }
+    function updateTrajectory() {
+      const canvas = $("trajectory"), context = canvas.getContext("2d");
+      context.clearRect(0, 0, canvas.width, canvas.height);
+      context.strokeStyle = "#324247"; context.lineWidth = 1;
+      context.beginPath(); context.moveTo(0, canvas.height / 2); context.lineTo(canvas.width, canvas.height / 2); context.stroke();
+      if (!state.points.length) { context.fillStyle = "#8e9da1"; context.font = "12px Space Mono"; context.fillText("WAITING FOR ODOMETRY", 18, 30); return; }
+      const xs = state.points.map((point) => point.x), ys = state.points.map((point) => point.y);
+      const minX = Math.min(...xs), maxX = Math.max(...xs), minY = Math.min(...ys), maxY = Math.max(...ys);
+      const scale = Math.min(560 / Math.max(maxX - minX, .5), 150 / Math.max(maxY - minY, .5));
+      const project = (point) => [20 + (point.x - minX) * scale, 95 - (point.y - minY) * scale];
+      context.strokeStyle = "#70d4d1"; context.lineWidth = 2; context.beginPath();
+      state.points.forEach((point, index) => { const [x, y] = project(point); if (!index) context.moveTo(x, y); else context.lineTo(x, y); });
+      context.stroke();
+      const [x, y] = project(state.points[state.points.length - 1]); context.fillStyle = "#d4f05f"; context.beginPath(); context.arc(x, y, 4, 0, Math.PI * 2); context.fill();
+    }
+    function handle(topic, message) {
+      stamp(topic);
+      if (topic === "/odom") {
+        const pose = message.pose.pose, twist = message.twist.twist;
+        const yaw = quaternionYaw(pose.orientation), degrees = yaw * 180 / Math.PI;
+        state.pose = { x: pose.position.x, y: pose.position.y, yaw };
+        state.points.push(state.pose); if (state.points.length > 500) state.points.shift();
+        setText("odom-x", `${number(pose.position.x)} m`); setText("odom-y", `${number(pose.position.y)} m`); setText("odom-v", `${number(twist.linear.x)} m/s`); setText("odom-w", `${number(twist.angular.z)} rad/s`);
+        setText("speed", `${number(Math.hypot(twist.linear.x, twist.linear.y))} `); $("speed").innerHTML += "<small>m/s</small>";
+        setText("heading", `${number(degrees, 1)} `); $("heading").innerHTML += "<small>deg</small>";
+        updateTrajectory();
+      } else if (topic === "/battery_state") {
+        const voltage = Number(message.voltage); setText("battery", `${number(voltage)} `); $("battery").innerHTML += "<small>V</small>";
+      } else if (topic === "/cmd_vel") {
+        setText("cmd-vel", `x ${number(message.linear.x)} / z ${number(message.angular.z)}`);
+      } else if (topic === "/rover/telemetry") {
+        try { const payload = JSON.parse(message.data); const voltage = Number(payload.voltage_v); if (Number.isFinite(voltage)) { setText("battery", `${number(voltage)} `); $("battery").innerHTML += "<small>V</small>"; } } catch (_) { /* raw telemetry remains visible as a signal */ }
+      }
+    }
+    function subscribe(socket, topic, type, throttleRate) {
+      socket.send(JSON.stringify({ op: "subscribe", topic, type, throttle_rate: throttleRate, queue_length: 1 }));
+    }
+    function connect() {
+      const socket = new WebSocket(rosbridgeUrl);
+      socket.onopen = () => {
+        $("connection-dot").classList.add("live"); $("connection-text").textContent = "ROS LINK LIVE";
+        subscribe(socket, "/odom", "nav_msgs/msg/Odometry", 200);
+        subscribe(socket, "/battery_state", "sensor_msgs/msg/BatteryState", 1000);
+        subscribe(socket, "/cmd_vel", "geometry_msgs/msg/Twist", 200);
+        subscribe(socket, "/rover/telemetry", "std_msgs/msg/String", 1000);
+      };
+      socket.onmessage = (event) => { const message = JSON.parse(event.data); if (message.op === "publish") handle(message.topic, message.msg); };
+      socket.onclose = () => { $("connection-dot").classList.remove("live"); $("connection-text").textContent = "ROS DISCONNECTED"; window.setTimeout(connect, 2000); };
+      socket.onerror = () => socket.close();
+    }
+    window.setInterval(() => { const now = performance.now(); const age = state.last["/rover/telemetry"]; setText("telemetry-age", age ? `${number((now - age) / 1000, 1)} ` : "-- "); if (age) $("telemetry-age").innerHTML += "<small>s</small>"; }, 500);
+    connect(); updateTrajectory();
+  </script>
+</body>
+</html>

@@ -58,8 +58,9 @@ def load_calibration(path):
         raise ValueError(f"calibration_file {path} must contain a YAML mapping")
 
     required = (
-        "meters_per_tick_left",
-        "meters_per_tick_right",
+        "telemetry_distance_unit",
+        "meters_per_left_unit",
+        "meters_per_right_unit",
         "track_width_m",
         "left_encoder_sign",
         "right_encoder_sign",
@@ -118,7 +119,7 @@ class RoverBridge(Node):
         self.declare_parameter("odom_frame_id", "odom")
         self.declare_parameter("base_frame_id", "base_link")
         self.declare_parameter("calibration_file", default_calibration_file())
-        self.declare_parameter("max_encoder_delta_ticks", 200.0)
+        self.declare_parameter("max_distance_delta_m", 2.0)
         self.declare_parameter("odom_pose_covariance", 0.05)
         self.declare_parameter("odom_twist_covariance", 0.1)
         self.declare_parameter("publish_compressed", True)
@@ -147,19 +148,19 @@ class RoverBridge(Node):
         calibration_file = str(self.get_parameter("calibration_file").value)
         calibration = load_calibration(calibration_file)
         self._odom = OdometryIntegrator(
-            meters_per_tick_left=float(calibration["meters_per_tick_left"]),
-            meters_per_tick_right=float(calibration["meters_per_tick_right"]),
+            left_distance_scale=float(calibration["meters_per_left_unit"]),
+            right_distance_scale=float(calibration["meters_per_right_unit"]),
             track_width_m=float(calibration["track_width_m"]),
             left_encoder_sign=int(calibration["left_encoder_sign"]),
             right_encoder_sign=int(calibration["right_encoder_sign"]),
-            max_encoder_delta_ticks=float(
-                self.get_parameter("max_encoder_delta_ticks").value
+            max_distance_delta_m=float(
+                self.get_parameter("max_distance_delta_m").value
             ),
         )
         self.get_logger().info(
             f"Using calibration file {calibration_file}: "
-            f"left={calibration['meters_per_tick_left']}, "
-            f"right={calibration['meters_per_tick_right']}, "
+            f"left={calibration['meters_per_left_unit']} m/{calibration['telemetry_distance_unit']}, "
+            f"right={calibration['meters_per_right_unit']} m/{calibration['telemetry_distance_unit']}, "
             f"track={calibration['track_width_m']}"
         )
         self._odom_pose_covariance = float(
@@ -180,8 +181,6 @@ class RoverBridge(Node):
 
         self._camera_packet_condition = threading.Condition()
         self._camera_packet = None
-        self._camera_info_lock = threading.Lock()
-        self._latest_camera_info = None
         self._missing_pi_stamp_logged = False
 
         self._stats_lock = threading.Lock()
@@ -250,7 +249,6 @@ class RoverBridge(Node):
             self._twist_callback,
             10,
         )
-        self._camera_info_timer = self.create_timer(1.0, self._publish_camera_info)
         self._stats_timer = self.create_timer(5.0, self._log_camera_stats)
 
         self._threads = [
@@ -392,18 +390,18 @@ class RoverBridge(Node):
         data = payload.get("data")
         if not isinstance(data, dict):
             return
-        left_count = data.get("odl")
-        right_count = data.get("odr")
+        left_distance_unit = data.get("odl")
+        right_distance_unit = data.get("odr")
         timestamp = payload.get("ts")
-        if not all(isinstance(value, (int, float)) for value in (left_count, right_count, timestamp)):
+        if not all(isinstance(value, (int, float)) for value in (left_distance_unit, right_distance_unit, timestamp)):
             return
-        if not all(math.isfinite(float(value)) for value in (left_count, right_count, timestamp)):
-            self.get_logger().warning("Ignoring non-finite encoder telemetry")
+        if not all(math.isfinite(float(value)) for value in (left_distance_unit, right_distance_unit, timestamp)):
+            self.get_logger().warning("Ignoring non-finite wheel-distance telemetry")
             return
         try:
-            state = self._odom.update(left_count, right_count, timestamp)
+            state = self._odom.update(left_distance_unit, right_distance_unit, timestamp)
         except ValueError as exc:
-            self.get_logger().warning(f"Ignoring invalid encoder telemetry: {exc}")
+            self.get_logger().warning(f"Ignoring invalid wheel-distance telemetry: {exc}")
             return
         if self._odom.last_update_reset:
             self.get_logger().warning(
@@ -510,8 +508,7 @@ class RoverBridge(Node):
             self._publish_raw_rgbd(header, stamp, rgb_bytes, depth_bytes)
 
         info_msg = self._camera_info_message(header.get("camera_info"), stamp)
-        with self._camera_info_lock:
-            self._latest_camera_info = info_msg
+        self._camera_info_pub.publish(info_msg)
         with self._stats_lock:
             self._pub_count += 1
 
@@ -550,12 +547,6 @@ class RoverBridge(Node):
 
         self._rgb_pub.publish(rgb_msg)
         self._depth_pub.publish(depth_msg)
-
-    def _publish_camera_info(self):
-        with self._camera_info_lock:
-            info_msg = self._latest_camera_info
-        if info_msg is not None:
-            self._camera_info_pub.publish(info_msg)
 
     def _log_camera_stats(self):
         now = time.monotonic()

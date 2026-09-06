@@ -32,9 +32,9 @@ def generate_launch_description():
         DeclareLaunchArgument("camera_x", default_value="0.0"),
         DeclareLaunchArgument("camera_y", default_value="0.0"),
         DeclareLaunchArgument("camera_z", default_value="0.0"),
-        DeclareLaunchArgument("camera_roll", default_value="0.0"),
+        DeclareLaunchArgument("camera_roll", default_value="-1.5707963"),
         DeclareLaunchArgument("camera_pitch", default_value="0.0"),
-        DeclareLaunchArgument("camera_yaw", default_value="0.0"),
+        DeclareLaunchArgument("camera_yaw", default_value="-1.5707963"),
         Node(
             package="rover_bridge",
             executable="rover_bridge",
@@ -46,40 +46,6 @@ def generate_launch_description():
                     "pi_host": pi_host,
                     "camera_info_topic": camera_info_topic,
                 },
-            ],
-        ),
-        Node(
-            package="image_transport",
-            executable="republish",
-            name="rgb_republisher",
-            output="screen",
-            arguments=[
-                "--ros-args",
-                "-p",
-                "in_transport:=compressed",
-                "-p",
-                "out_transport:=raw",
-            ],
-            remappings=[
-                ("in", "/camera/color/image_raw"),
-                ("out", "/oak/rgb/image_raw"),
-            ],
-        ),
-        Node(
-            package="image_transport",
-            executable="republish",
-            name="depth_republisher",
-            output="screen",
-            arguments=[
-                "--ros-args",
-                "-p",
-                "in_transport:=compressedDepth",
-                "-p",
-                "out_transport:=raw",
-            ],
-            remappings=[
-                ("in", "/camera/depth/image_raw"),
-                ("out", "/oak/stereo/image_raw"),
             ],
         ),
         Node(

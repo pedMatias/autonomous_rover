@@ -9,9 +9,14 @@
   <exec_depend>image_transport</exec_depend>
   <exec_depend>launch</exec_depend>
   <exec_depend>launch_ros</exec_depend>
+  <exec_depend>python3-numpy</exec_depend>
+  <exec_depend>python3-opencv</exec_depend>
+  <exec_depend>rclpy</exec_depend>
+  <exec_depend>rosbridge_server</exec_depend>
   <exec_depend>rover_bridge</exec_depend>
   <exec_depend>rtabmap_launch</exec_depend>
   <exec_depend>tf2_ros</exec_depend>
+  <exec_depend>web_video_server</exec_depend>
 
   <export>
     <build_type>ament_python</build_type>

@@ -14,11 +14,11 @@ rover_bridge:
     battery_topic: /battery_state
     rgb_topic: /camera/color/image_raw
     depth_topic: /camera/depth/image_raw
-    camera_info_topic: /camera/color/camera_info
+    camera_info_topic: /oak/rgb/camera_info
     odom_topic: /odom
     odom_frame_id: odom
     base_frame_id: base_link
-    max_encoder_delta_ticks: 200.0
+    max_distance_delta_m: 2.0
     odom_pose_covariance: 0.05
     odom_twist_covariance: 0.1
     publish_compressed: true

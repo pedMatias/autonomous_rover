@@ -26,6 +26,7 @@ services are using `/dev/ttyAMA0`.
 ```bash
 cd ~/projects/autonomous_rover/ros2_ws
 source /opt/ros/jazzy/setup.bash
+sudo apt-get install ros-jazzy-rosbridge-server ros-jazzy-web-video-server
 rosdep install --from-paths src --ignore-src -r -y
 sudo apt install -y \
   ros-jazzy-image-transport-plugins \
@@ -35,8 +36,73 @@ colcon build --symlink-install --packages-select rover_bridge rover_slam
 source install/setup.bash
 export FASTDDS_BUILTIN_TRANSPORTS=LARGE_DATA
 
-# live_bringup starts rover_bridge, both image republishers, and camera TF.
+# live_bringup keeps the network stream compressed and publishes camera TF.
 ros2 launch rover_slam live_bringup.launch.py pi_host:=192.168.0.12
+```
+
+## WSL2: rover GCS dashboard
+
+The read-only dashboard observes the existing ROS2 graph. It opens a native
+WebSocket for low-rate telemetry and uses host-side MJPEG streams for the two
+camera panes:
+
+```bash
+cd ~/projects/autonomous_rover/ros2_ws
+source /opt/ros/jazzy/setup.bash
+source install/setup.bash
+export FASTDDS_BUILTIN_TRANSPORTS=LARGE_DATA
+ros2 launch rover_slam gcs.launch.py pi_host:=192.168.0.12
+```
+
+Open <http://localhost:8000> in a browser. The dashboard subscribes to
+`/odom`, `/battery_state`, `/cmd_vel`, and `/rover/telemetry`. RGB and depth
+are served by `web_video_server` using compressed image transport from
+the base topics `/camera/color/image_raw` and
+`/gcs/depth_preview/image_raw`. The dashboard uses the server's direct
+`ros_compressed` stream mode, which resolves their compressed transport topics;
+raw `/oak/...` image topics are not required. The depth preview is generated at 5 Hz from
+`/camera/depth/image_raw/compressedDepth`.
+
+The depth preview performs one additional, capped host-side decode and JPEG
+encode for visualization. It does not publish raw images and does not send any
+additional data to the Pi. RTAB-Map should continue subscribing directly to
+the original compressed RGB-D topics.
+
+This does not add traffic to the Pi and does not create another camera
+connection. The bridge, RTAB-Map, and the dashboard are all on WSL2; the
+dashboard only adds local ROS subscriptions and host-side MJPEG encoding.
+Keep the dashboard read-only while validating autonomous driving. If the
+host becomes CPU-bound, close the browser or stop `web_video_server`; the
+dashboard's telemetry subscriptions are throttled to at most 5 Hz and the
+camera streams are limited to 720 pixels and quality 70.
+
+If the bridge reports `rx_fps=0.00` and `Rover camera connection lost:
+timed out`, the GCS is not yet receiving camera frames. Check the Pi service
+before changing ROS topics:
+
+```bash
+ssh ws@192.168.0.12
+sudo systemctl --no-pager --full status rover-camera.service
+sudo journalctl -u rover-camera.service -n 100 --no-pager
+ss -ltn | grep ':8770\b'
+sudo systemctl restart rover-camera.service
+```
+
+The camera service accepts one TCP client and must be able to dequeue
+synchronized RGB-D pairs from the OAK-D. After restarting it, confirm the
+bridge reports nonzero `rx_fps` before starting RTAB-Map or debugging the
+browser. Do not run a second camera reader against the OAK-D at the same time.
+
+If ports `8000`, `8080`, or `9090` are already in use, stop the previous GCS
+launch with `Ctrl+C` before starting it again. There must be exactly one
+`rover_bridge`, one `gcs_depth_preview`, one `web_video_server`, and one
+`rosbridge_websocket` process. Confirm the bridge publisher exists before
+debugging the browser:
+
+```bash
+ros2 node list
+ros2 topic info /camera/color/image_raw/compressed
+ros2 topic info /gcs/depth_preview/image_raw/compressed
 ```
 
 ## WSL2: verify
@@ -49,15 +115,14 @@ source ~/projects/autonomous_rover/ros2_ws/install/setup.bash
 export FASTDDS_BUILTIN_TRANSPORTS=LARGE_DATA
 
 ros2 topic list
-ros2 topic hz /camera/color/image_raw
-ros2 topic hz /camera/depth/image_raw
+# The bridge publishes these compressed camera topics only.
+ros2 topic hz /camera/color/image_raw/compressed
+ros2 topic hz /camera/depth/image_raw/compressedDepth
 ros2 topic hz /odom
 ros2 topic hz /tf
 ros2 topic echo /battery_state
 ros2 param get /rover_bridge calibration_file
-ros2 param get /rover_bridge meters_per_tick_left
-ros2 param get /rover_bridge meters_per_tick_right
-ros2 param get /rover_bridge track_width_m
+ros2 param get /rover_bridge max_distance_delta_m
 ```
 
 ## WSL2: drive and stop
@@ -122,8 +187,29 @@ source install/setup.bash
 export FASTDDS_BUILTIN_TRANSPORTS=LARGE_DATA
 
 ros2 launch rover_slam offline_mapping.launch.py \
+  use_sim_time:=true \
   database_path:=/tmp/rover_mapping.db
 ```
+
+The offline recorder writes raw `/oak/...` RGB-D topics, so the default launch
+arguments above use the raw transport. For a live RTAB-Map run against the
+compressed bridge topics, use:
+
+```bash
+ros2 launch rover_slam offline_mapping.launch.py \
+  rgb_topic:=/camera/color/image_raw \
+  depth_topic:=/camera/depth/image_raw \
+  camera_info_topic:=/oak/rgb/camera_info \
+  rgb_image_transport:=compressed \
+  depth_image_transport:=compressedDepth \
+  qos:=1 \
+  qos_camera_info:=2 \
+  use_sim_time:=false \
+  database_path:=/tmp/rover_live_mapping.db
+```
+
+In both cases, RTAB-Map performs the decoding in its ROS2 image pipeline; the
+bridge does not publish raw images.
 
 In a separate WSL2 terminal:
 

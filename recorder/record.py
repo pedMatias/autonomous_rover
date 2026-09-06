@@ -79,17 +79,17 @@ def check_uart_owners():
 def load_calibration():
     if not os.path.exists(CALIB_FILE):
         print(f"ERROR: no calibration file found at {CALIB_FILE}.")
-        print("Run pedro_scripts/calibrate_odometry.py first (straight + arc modes).")
+        print("Check config/calibration.yaml for the active telemetry baseline.")
         sys.exit(1)
     with open(CALIB_FILE, "r") as fh:
         calib = yaml.safe_load(fh) or {}
-    m_per_tick_left = calib.get("meters_per_tick_left", calib.get("meters_per_tick"))
-    m_per_tick_right = calib.get("meters_per_tick_right", calib.get("meters_per_tick"))
+    m_per_unit_left = calib.get("meters_per_left_unit")
+    m_per_unit_right = calib.get("meters_per_right_unit")
     track_width = calib.get("track_width_m")
-    if not m_per_tick_left or not m_per_tick_right or not track_width:
-        print("ERROR: calibration file lacks left/right meters_per_tick or track_width_m.")
+    if not m_per_unit_left or not m_per_unit_right or not track_width:
+        print("ERROR: calibration file lacks left/right unit scales or track_width_m.")
         sys.exit(1)
-    return m_per_tick_left, m_per_tick_right, track_width
+    return m_per_unit_left, m_per_unit_right, track_width
 
 
 def dir_size_bytes(path):
@@ -206,15 +206,15 @@ def main():
         sys.exit(1)
 
     check_uart_owners()
-    m_per_tick_left, m_per_tick_right, track_width = load_calibration()
+    m_per_unit_left, m_per_unit_right, track_width = load_calibration()
     print(
-        f"Using calibration: left={m_per_tick_left:.6f}, "
-        f"right={m_per_tick_right:.6f}, track_width_m={track_width:.4f}"
+        f"Using calibration: left={m_per_unit_left:.6f} m/unit, "
+        f"right={m_per_unit_right:.6f} m/unit, track_width_m={track_width:.4f}"
     )
 
     odometry = OdometryIntegrator(
-        meters_per_tick_left=m_per_tick_left,
-        meters_per_tick_right=m_per_tick_right,
+        left_distance_scale=m_per_unit_left,
+        right_distance_scale=m_per_unit_right,
         track_width_m=track_width,
     )
 

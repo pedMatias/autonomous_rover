@@ -2,8 +2,8 @@
 Wheel/encoder odometry calibration for the UGV Rover, run ON THE RASPBERRY PI.
 
 Derives the constants needed for dead-reckoning odometry integration:
-    - meters_per_tick_left/right: linear distance per encoder count
-  - track_width_m:   effective distance between the two wheel contact points
+        - meters_per_left/right_unit: linear distance per reported odl/odr unit
+    - track_width_m:   effective distance between the two wheel contact points
 
 Motion types used here:
     1. Straight-line driving:  L == R (same speed, same direction)
@@ -41,8 +41,8 @@ from base_ctrl import BaseController  # noqa: E402
 def load_calib():
     with open(CALIB_FILE, "r") as fh:
         data = yaml.safe_load(fh) or {}
-    data.setdefault("meters_per_tick_left", data.get("meters_per_tick"))
-    data.setdefault("meters_per_tick_right", data.get("meters_per_tick"))
+    data.setdefault("meters_per_left_unit", None)
+    data.setdefault("meters_per_right_unit", None)
     data.setdefault("track_width_m", None)
     data.setdefault("straight_trials", [])
     data.setdefault("arc_trials", [])
@@ -121,7 +121,7 @@ def run_straight(args):
     odl_delta = odl_end - odl_start
     odr_delta = odr_end - odr_start
     print(f"End odl={odl_end} odr={odr_end}")
-    print(f"Delta ticks: odl={odl_delta}  odr={odr_delta}")
+    print(f"Delta reported units: odl={odl_delta}  odr={odr_delta}")
 
     measured = input("Measure the ACTUAL distance traveled with a tape measure (meters), e.g. 1.85: ").strip()
     try:
@@ -131,10 +131,10 @@ def run_straight(args):
         return
 
     if odl_delta <= 0 or odr_delta <= 0:
-        print("ERROR: non-positive tick delta, trial discarded (did the rover actually move?).")
+        print("ERROR: non-positive reported-unit delta, trial discarded (did the rover actually move?).")
         return
-    m_per_tick_left = measured_m / odl_delta
-    m_per_tick_right = measured_m / odr_delta
+    m_per_unit_left = measured_m / odl_delta
+    m_per_unit_right = measured_m / odr_delta
 
     calib = load_calib()
     calib["straight_trials"].append({
@@ -143,20 +143,20 @@ def run_straight(args):
         "odl_delta": odl_delta,
         "odr_delta": odr_delta,
         "measured_m": measured_m,
-        "meters_per_tick_left": m_per_tick_left,
-        "meters_per_tick_right": m_per_tick_right,
+        "meters_per_left_unit": m_per_unit_left,
+        "meters_per_right_unit": m_per_unit_right,
     })
     trials = calib["straight_trials"]
-    calib["meters_per_tick_left"] = sum(t["meters_per_tick_left"] for t in trials) / len(trials)
-    calib["meters_per_tick_right"] = sum(t["meters_per_tick_right"] for t in trials) / len(trials)
+    calib["meters_per_left_unit"] = sum(t["meters_per_left_unit"] for t in trials) / len(trials)
+    calib["meters_per_right_unit"] = sum(t["meters_per_right_unit"] for t in trials) / len(trials)
     save_calib(calib)
 
-    print(f"Trial meters_per_tick_left = {m_per_tick_left:.6f}")
-    print(f"Trial meters_per_tick_right = {m_per_tick_right:.6f}")
+    print(f"Trial meters_per_left_unit = {m_per_unit_left:.6f}")
+    print(f"Trial meters_per_right_unit = {m_per_unit_right:.6f}")
     print(
         f"Averaged scales over {len(trials)} trial(s): "
-        f"left={calib['meters_per_tick_left']:.6f}, "
-        f"right={calib['meters_per_tick_right']:.6f}"
+        f"left={calib['meters_per_left_unit']:.6f}, "
+        f"right={calib['meters_per_right_unit']:.6f}"
     )
     print("Saved to", CALIB_FILE)
 
@@ -172,9 +172,9 @@ def run_arc(args):
         return
 
     calib = load_calib()
-    m_per_tick_left = calib.get("meters_per_tick_left", calib.get("meters_per_tick"))
-    m_per_tick_right = calib.get("meters_per_tick_right", calib.get("meters_per_tick"))
-    if not m_per_tick_left or not m_per_tick_right:
+    m_per_unit_left = calib.get("meters_per_left_unit")
+    m_per_unit_right = calib.get("meters_per_right_unit")
+    if not m_per_unit_left or not m_per_unit_right:
         print("ERROR: run the 'straight' calibration first (wheel scales are not set yet).")
         return
 
@@ -203,7 +203,7 @@ def run_arc(args):
     odl_end, odr_end = end_data["odl"], end_data["odr"]
     odl_delta = odl_end - odl_start
     odr_delta = odr_end - odr_start
-    print(f"Delta ticks: odl={odl_delta}  odr={odr_delta}")
+    print(f"Delta reported units: odl={odl_delta}  odr={odr_delta}")
 
     angle_str = input(
         "Measure the ACTUAL heading change (degrees, positive = turned toward the faster wheel's opposite side), e.g. 35: "
@@ -218,8 +218,8 @@ def run_arc(args):
         return
 
     theta_rad = math.radians(angle_deg)
-    left_dist = odl_delta * m_per_tick_left
-    right_dist = odr_delta * m_per_tick_right
+    left_dist = odl_delta * m_per_unit_left
+    right_dist = odr_delta * m_per_unit_right
     track_width = abs(right_dist - left_dist) / abs(theta_rad)
 
     calib["arc_trials"].append({
@@ -242,8 +242,8 @@ def run_arc(args):
 
 def run_summary(args):
     calib = load_calib()
-    print(f"meters_per_tick_left = {calib.get('meters_per_tick_left')}")
-    print(f"meters_per_tick_right = {calib.get('meters_per_tick_right')}")
+    print(f"meters_per_left_unit = {calib.get('meters_per_left_unit')}")
+    print(f"meters_per_right_unit = {calib.get('meters_per_right_unit')}")
     print(f"track_width_m   = {calib.get('track_width_m')}")
     print(f"straight_trials = {len(calib.get('straight_trials', []))}")
     print(f"arc_trials      = {len(calib.get('arc_trials', []))}")
@@ -254,7 +254,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = parser.add_subparsers(dest="mode", required=True)
 
-    p_straight = sub.add_parser("straight", help="Straight-line meters_per_tick calibration")
+    p_straight = sub.add_parser("straight", help="Straight-line reported-distance calibration")
     p_straight.add_argument("--speed", type=float, default=0.39, help="m/s, both wheels equal (factory startup default 0.39)")
     p_straight.add_argument("--duration", type=float, default=4.0, help="seconds to drive (default 4.0)")
 

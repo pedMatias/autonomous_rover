@@ -1,6 +1,14 @@
-meters_per_tick_left: 0.034664082687338504
-meters_per_tick_right: 0.03631593874078276
-track_width_m: 0.33185
+# Provisional Waveshare UGV Rover baseline (mainType=2).
+# T:1001 odl/odr are treated as cumulative centimetre units until the
+# measured-distance validation run confirms or rejects that firmware mode.
+telemetry_distance_unit: cm
+meters_per_left_unit: 0.01
+meters_per_right_unit: 0.01
+
+# 0.172 m is the manufacturer physical track. 0.206 m is the provisional
+# effective width used by odometry to account for six-wheel skid scrub.
+physical_track_width_m: 0.172
+track_width_m: 0.206
 left_encoder_sign: 1
 right_encoder_sign: 1
 gyro_bias_x: -8.615771812080537
@@ -14,15 +22,15 @@ straight_trials:
   odl_delta: 43
   odr_delta: 41
   measured_m: 1.5
-  meters_per_tick_left: 0.03488372093023256
-  meters_per_tick_right: 0.036585365853658534
+  meters_per_left_unit: 0.03488372093023256
+  meters_per_right_unit: 0.036585365853658534
 - speed: 0.39
   duration: 4.0
   odl_delta: 45
   odr_delta: 43
   measured_m: 1.55
-  meters_per_tick_left: 0.034444444444444444
-  meters_per_tick_right: 0.03604651162790698
+  meters_per_left_unit: 0.034444444444444444
+  meters_per_right_unit: 0.03604651162790698
 arc_trials:
 - left_speed: 0.39
   right_speed: 0.15

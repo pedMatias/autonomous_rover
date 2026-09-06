@@ -11,8 +11,8 @@ from rover_bridge.odometry import OdometryIntegrator
 class OdometryIntegratorTests(unittest.TestCase):
     def make_integrator(self, **kwargs):
         return OdometryIntegrator(
-            meters_per_tick_left=1.0,
-            meters_per_tick_right=1.0,
+            left_distance_scale=1.0,
+            right_distance_scale=1.0,
             track_width_m=2.0,
             **kwargs,
         )
@@ -37,6 +37,19 @@ class OdometryIntegratorTests(unittest.TestCase):
         self.assertAlmostEqual(state.linear_velocity, 2.0)
         self.assertAlmostEqual(state.angular_velocity, 0.0)
 
+    def test_centimetre_units_convert_to_metres(self):
+        odometry = OdometryIntegrator(
+            left_distance_scale=0.01,
+            right_distance_scale=0.01,
+            track_width_m=0.206,
+        )
+        odometry.update(0, 0, 0.0)
+
+        state = odometry.update(100, 100, 1.0)
+
+        self.assertAlmostEqual(state.x, 1.0)
+        self.assertAlmostEqual(state.linear_velocity, 1.0)
+
     def test_reverse_encoder_signs_are_supported(self):
         odometry = self.make_integrator(left_encoder_sign=-1, right_encoder_sign=-1)
         odometry.update(0, 0, 0.0)
@@ -47,7 +60,7 @@ class OdometryIntegratorTests(unittest.TestCase):
         self.assertAlmostEqual(state.theta, 0.0)
 
     def test_large_jump_resets_baseline_without_pose_spike(self):
-        odometry = self.make_integrator(max_encoder_delta_ticks=10.0)
+        odometry = self.make_integrator(max_distance_delta_m=10.0)
         odometry.update(0, 0, 0.0)
         odometry.update(2, 2, 1.0)
 

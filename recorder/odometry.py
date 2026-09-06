@@ -1,10 +1,10 @@
 """
 Differential-drive wheel odometry integrator for the UGV Rover.
 
-Consumes cumulative encoder tick counts (odl, odr from the ESP32's T:1001
-feedback) and integrates them into a 2D pose (x, y, theta) using the
-calibration constants derived by pedro_scripts/calibrate_odometry.py
-(meters_per_tick_left/right, track_width_m).
+Consumes cumulative T:1001 wheel-distance units (odl, odr) from the ESP32
+feedback and integrates them into a 2D pose (x, y, theta). The active
+calibration supplies the meters represented by one reported unit on each
+side and the effective track width.
 
 Known limitation (accepted in the project plan in README.md): encoder counts
 can closely match between wheels while the rover still drifts off a straight
@@ -18,16 +18,12 @@ import math
 
 
 class OdometryIntegrator:
-    def __init__(self, meters_per_tick=None, track_width_m=None,
-                 meters_per_tick_left=None, meters_per_tick_right=None):
-        if meters_per_tick_left is None:
-            meters_per_tick_left = meters_per_tick
-        if meters_per_tick_right is None:
-            meters_per_tick_right = meters_per_tick
-        if not meters_per_tick_left or not meters_per_tick_right or not track_width_m:
-            raise ValueError("left/right meters_per_tick and track_width_m must be calibrated")
-        self.meters_per_tick_left = meters_per_tick_left
-        self.meters_per_tick_right = meters_per_tick_right
+    def __init__(self, left_distance_scale=1.0, right_distance_scale=1.0,
+                 track_width_m=None):
+        if not left_distance_scale or not right_distance_scale or not track_width_m:
+            raise ValueError("left/right distance scales and track_width_m must be calibrated")
+        self.left_distance_scale = left_distance_scale
+        self.right_distance_scale = right_distance_scale
         self.track_width_m = track_width_m
 
         self.x = 0.0
@@ -62,12 +58,12 @@ class OdometryIntegrator:
             self._prev_ts = ts
             return self.x, self.y, self.theta, self.vx, self.vth
 
-        dl_ticks = odl - self._prev_odl
-        dr_ticks = odr - self._prev_odr
+        dl_units = odl - self._prev_odl
+        dr_units = odr - self._prev_odr
         dt = ts - self._prev_ts
 
-        dl = dl_ticks * self.meters_per_tick_left
-        dr = dr_ticks * self.meters_per_tick_right
+        dl = dl_units * self.left_distance_scale
+        dr = dr_units * self.right_distance_scale
         dc = (dl + dr) / 2.0
         dtheta = (dr - dl) / self.track_width_m
 
