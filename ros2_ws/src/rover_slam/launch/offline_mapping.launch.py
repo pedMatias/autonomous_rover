@@ -12,6 +12,10 @@ def generate_launch_description():
     database_path = LaunchConfiguration("database_path")
     qos = LaunchConfiguration("qos")
     qos_camera_info = LaunchConfiguration("qos_camera_info")
+    approx_sync = LaunchConfiguration("approx_sync")
+    approx_sync_max_interval = LaunchConfiguration("approx_sync_max_interval")
+    topic_queue_size = LaunchConfiguration("topic_queue_size")
+    sync_queue_size = LaunchConfiguration("sync_queue_size")
     rgb_topic = LaunchConfiguration("rgb_topic")
     depth_topic = LaunchConfiguration("depth_topic")
     rgb_transport = LaunchConfiguration("rgb_image_transport")
@@ -45,7 +49,10 @@ def generate_launch_description():
             "odom_topic": LaunchConfiguration("odom_topic"),
             "rgbd_sync": "true",
             "approx_rgbd_sync": "true",
-            "approx_sync_max_interval": LaunchConfiguration("approx_sync_max_interval"),
+            "approx_sync": approx_sync,
+            "approx_sync_max_interval": approx_sync_max_interval,
+            "topic_queue_size": topic_queue_size,
+            "sync_queue_size": sync_queue_size,
             "visual_odometry": "false",
             "icp_odometry": "false",
             "publish_tf_map": "true",
@@ -78,7 +85,10 @@ def generate_launch_description():
         ),
         DeclareLaunchArgument("odom_topic", default_value="/odom"),
         DeclareLaunchArgument("use_sim_time", default_value="false"),
-        DeclareLaunchArgument("approx_sync_max_interval", default_value="0.10"),
+        DeclareLaunchArgument("approx_sync", default_value="true"),
+        DeclareLaunchArgument("approx_sync_max_interval", default_value="0.20"),
+        DeclareLaunchArgument("topic_queue_size", default_value="30"),
+        DeclareLaunchArgument("sync_queue_size", default_value="30"),
         DeclareLaunchArgument("database_path", default_value=""),
         DeclareLaunchArgument("localization", default_value="false"),
         DeclareLaunchArgument("rtabmap_viz", default_value="true"),

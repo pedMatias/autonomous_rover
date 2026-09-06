@@ -39,7 +39,15 @@ The primary camera interfaces are the compressed topics
 `/camera/color/image_raw/compressed` (`sensor_msgs/CompressedImage`, JPEG) and
 `/camera/depth/image_raw/compressedDepth` (`sensor_msgs/CompressedImage`, ROS2
 compressedDepth PNG). The bridge forwards the Pi payloads without decoding
-them. Raw image topics remain available for debugging with `publish_raw:=true`.
+them. Camera calibration is published on `/oak/rgb/camera_info` for every
+RGB-D frame with the matching camera timestamp. Raw image topics remain
+available only for debugging with `publish_raw:=true`.
+
+RTAB-Map consumers decode the compressed topics on the WSL2 side. The current
+Jazzy mapping launch starts explicit parameter-based RGB and depth
+republishers, because the distro's positional `image_transport republish`
+syntax can fall back to `raw` input. It then uses approximate synchronization
+for both RGB-D assembly and the outer `/odom` plus RGB-D mapper input.
 
 ## Runtime ownership
 
@@ -267,8 +275,6 @@ In another WSL2 terminal, camera rates can be checked with:
 ```bash
 source /opt/ros/$ROS_DISTRO/setup.bash
 source ~/ugv_rpi/ros2_ws/install/setup.bash
-ros2 topic hz /camera/color/image_raw
-ros2 topic hz /camera/depth/image_raw
 ros2 topic hz /camera/color/image_raw/compressed
 ros2 topic hz /camera/depth/image_raw/compressedDepth
 ```
@@ -279,7 +285,7 @@ subscribers can connect. Optional raw debug publishers use sensor-data
 measuring the rate.
 
 You should see `/battery_state`, `/camera/color/image_raw/compressed`,
-`/camera/depth/image_raw/compressedDepth`, `/camera/color/camera_info`, and
+`/camera/depth/image_raw/compressedDepth`, `/oak/rgb/camera_info`, and
 `/rover/telemetry`. The raw image topics are present only when the bridge is
 started with `publish_raw:=true`.
 
@@ -367,15 +373,19 @@ Published:
 ```text
 /rover/telemetry          std_msgs/msg/String      compact JSON
 /battery_state            sensor_msgs/msg/BatteryState
-/camera/color/image_raw   sensor_msgs/msg/Image   bgr8
-/camera/depth/image_raw   sensor_msgs/msg/Image   16UC1 millimetres
-/camera/camera_info       sensor_msgs/msg/CameraInfo
+/camera/color/image_raw/compressed       sensor_msgs/msg/CompressedImage  JPEG
+/camera/depth/image_raw/compressedDepth  sensor_msgs/msg/CompressedImage  16UC1 PNG
+/oak/rgb/camera_info      sensor_msgs/msg/CameraInfo  per RGB-D frame
+/odom                     nav_msgs/msg/Odometry
+/tf                       odom -> base_link
 ```
 
-The bridge does not publish wheel odometry or TF yet. Those remain deferred
-until encoder calibration is repeatable. The Pi recorder can write provisional
-`/odom` and `odom -> base_link` data for offline inspection, but it must not be
-treated as navigation-grade ground truth.
+The live bridge publishes provisional wheel odometry and `odom -> base_link`
+TF using the active centimetre-unit baseline in
+[config/calibration.yaml](config/calibration.yaml). The odometry is useful as
+an RTAB-Map motion prior, but it is not navigation-grade ground truth on
+carpet or during skid turns. Visual registration and loop closures remain the
+authority for correcting drift.
 
 ## Verification sequence
 
@@ -402,20 +412,20 @@ Run these checks from the appropriate host, in order.
 5. **Camera:** confirm RGB/depth dimensions, camera info, packet rate, latency,
     and OAK-D temperature during a 20-minute run.
 
-6. **Calibration:** repeat at least five straight and five diagonal-arc trials
-    with [config/calibration.yaml](config/calibration.yaml) as the only active
-    calibration store:
+6. **Telemetry validation:** keep the provisional Waveshare baseline until a
+    measured straight run confirms the units crossing the UART boundary. The
+    active assumptions are `odl/odr` in centimetres, `0.01 m/unit`, physical
+    track `0.172 m`, and effective odometry track `0.206 m`:
 
     ```bash
-    ./ugv-env/bin/python pedro_scripts/calibrate_odometry.py straight --speed 0.39 --duration 4
-    ./ugv-env/bin/python pedro_scripts/calibrate_odometry.py arc --left 0.06 --right 0.39 --duration 4
-    ./ugv-env/bin/python pedro_scripts/calibrate_imu.py --duration 30
-    ./ugv-env/bin/python pedro_scripts/calibrate_odometry.py summary
+    # Compare odl/odr deltas with a tape-measured straight run.
+    ros2 topic echo --once /rover/telemetry
     ```
 
-7. **Recording:** after calibration is populated, use `recorder/record.py` only
-    with the production services stopped. Transfer the resulting bag to WSL2
-    and replay it with `ros2 bag play <bag> --clock`.
+7. **Recording and mapping:** record a complete WSL2 bag, then replay it into
+    RTAB-Map with `use_sim_time:=true`. Start RTAB-Map before `ros2 bag play`.
+    Use a permanent path such as `recordings/room_run_01/` and
+    `maps/room_run_01.db`; `/tmp` is only for disposable experiments.
 
 ## Implementation plan
 
@@ -449,7 +459,7 @@ The rover is ready for autonomous experiments when all of the following pass:
 - Telemetry and RGB-D topics arrive at the expected rates.
 - A killed bridge stops the rover within `0.5` seconds.
 - Encoder calibration is repeatable in forward, reverse, and diagonal motion.
-- RGB-D bags replay without clock or TF errors.
+- RGB-D bags replay with approximate outer odometry/RGB-D synchronization.
 - RTAB-Map creates and reloads a usable map.
 - Localization publishes stable transforms.
 - Nav2 completes a short indoor goal with a tested emergency stop.

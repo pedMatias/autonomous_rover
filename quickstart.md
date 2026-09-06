@@ -180,6 +180,63 @@ sudo systemctl enable --now rover-agent.service rover-camera.service
 
 ## WSL2: offline RTAB-Map
 
+RTAB-Map can build a map after recording. `ros2 bag record` stores the input
+messages; the separate `rtabmap` process consumes them during replay and
+writes the database. Keep the bag and database in permanent project paths:
+
+```text
+recordings/room_run_01/       input bag
+maps/room_run_01.db           RTAB-Map database
+```
+
+The live bridge publishes compressed RGB-D, per-frame CameraInfo, provisional
+`/odom`, and `/tf`. The mapping launch starts explicit Jazzy-compatible
+republishers and uses approximate synchronization for both RGB-D assembly and
+the outer `/odom` plus RGB-D mapper input.
+
+## WSL2: record a mapping run
+
+Start `live_bringup.launch.py` first, then record from WSL2 while driving with
+`/cmd_vel`. Do not run the Pi standalone recorder at the same time as the
+production services.
+
+```bash
+cd ~/projects/autonomous_rover
+mkdir -p recordings
+source /opt/ros/jazzy/setup.bash
+source ros2_ws/install/setup.bash
+export FASTDDS_BUILTIN_TRANSPORTS=LARGE_DATA
+
+ros2 bag record -o recordings/room_run_01 \
+  /camera/color/image_raw/compressed \
+  /camera/depth/image_raw/compressedDepth \
+  /oak/rgb/camera_info \
+  /odom /tf /tf_static \
+  /cmd_vel /rover/telemetry /battery_state
+```
+
+Drive slowly through textured areas and return through part of the route so
+RTAB-Map can use visual overlap and loop closures. Send an explicit zero
+command before stopping the motion publisher. Stop the recorder with `Ctrl+C`
+only after the rover is stopped, then verify the bag:
+
+```bash
+ros2 bag info recordings/room_run_01
+```
+
+The RGB, depth, and CameraInfo counts should be comparable. The bag does not
+contain `/rtabmap/rgbd_image`; that topic is generated during replay.
+
+## WSL2: build a permanent RTAB-Map database
+
+Create the map directory once:
+
+```bash
+mkdir -p ~/projects/autonomous_rover/maps
+```
+
+Start RTAB-Map **before** starting bag playback:
+
 ```bash
 cd ~/projects/autonomous_rover/ros2_ws
 source /opt/ros/jazzy/setup.bash
@@ -187,29 +244,91 @@ source install/setup.bash
 export FASTDDS_BUILTIN_TRANSPORTS=LARGE_DATA
 
 ros2 launch rover_slam offline_mapping.launch.py \
-  use_sim_time:=true \
-  database_path:=/tmp/rover_mapping.db
-```
-
-The offline recorder writes raw `/oak/...` RGB-D topics, so the default launch
-arguments above use the raw transport. For a live RTAB-Map run against the
-compressed bridge topics, use:
-
-```bash
-ros2 launch rover_slam offline_mapping.launch.py \
   rgb_topic:=/camera/color/image_raw \
   depth_topic:=/camera/depth/image_raw \
   camera_info_topic:=/oak/rgb/camera_info \
   rgb_image_transport:=compressed \
   depth_image_transport:=compressedDepth \
+  approx_sync:=true \
+  approx_sync_max_interval:=0.20 \
+  topic_queue_size:=30 \
+  sync_queue_size:=30 \
   qos:=1 \
   qos_camera_info:=2 \
-  use_sim_time:=false \
-  database_path:=/tmp/rover_live_mapping.db
+  use_sim_time:=true \
+  database_path:=/home/pmati/projects/autonomous_rover/maps/room_run_01.db
 ```
+
+The defaults already enable:
+
+```text
+approx_sync:=true
+approx_sync_max_interval:=0.20
+topic_queue_size:=30
+sync_queue_size:=30
+```
+
+These settings are important during bag replay because `/odom` is faster than
+the synchronized RGB-D stream and their timestamps are not identical.
+
+In a separate WSL2 terminal, start replay only after RTAB-Map reports that its
+republishers and `rgbd_sync` are running:
+
+```bash
+cd ~/projects/autonomous_rover
+source /opt/ros/jazzy/setup.bash
+source ros2_ws/install/setup.bash
+export FASTDDS_BUILTIN_TRANSPORTS=LARGE_DATA
+
+ros2 bag play recordings/room_run_01 \
+  --clock \
+  --rate 0.5
+```
+
+Monitor the generated synchronized topic while replay runs:
+
+```bash
+ros2 topic hz /rtabmap/rgbd_image
+```
+
+After replay finishes, stop RTAB-Map cleanly with `Ctrl+C` before inspecting
+the database:
+
+```bash
+rtabmap-info ~/projects/autonomous_rover/maps/room_run_01.db
+rtabmap-databaseViewer ~/projects/autonomous_rover/maps/room_run_01.db
+```
+
+The database should report nonzero sessions, nodes, poses, RGB/depth data, and
+graph links. `/tmp` is suitable for failed or disposable attempts only; use a
+new permanent database name for each retry.
+
+For a live RTAB-Map run against the compressed bridge topics, use
+`use_sim_time:=false` and the same compressed topic arguments, but do not run
+bag playback at the same time.
 
 In both cases, RTAB-Map performs the decoding in its ROS2 image pipeline; the
 bridge does not publish raw images.
+
+The default camera transform uses the tested forward-facing optical-frame
+rotation (`roll=-1.5707963`, `yaw=-1.5707963`). Camera translation remains
+zero until the physical offset from `base_link` is measured.
+
+For a recorded bag replay, do not start `live_bringup.launch.py`: the bag
+already contains camera, odometry, and TF messages.
+
+Legacy raw `/oak/...` recorder bags are a separate input mode and should use
+raw transport arguments instead of the compressed bridge arguments above.
+
+```bash
+ros2 launch rover_slam offline_mapping.launch.py \
+  use_sim_time:=true \
+  rgb_topic:=/oak/rgb/image_raw \
+  depth_topic:=/oak/stereo/image_raw \
+  rgb_image_transport:=raw \
+  depth_image_transport:=raw \
+  database_path:=/home/pmati/projects/autonomous_rover/maps/legacy_run.db
+```
 
 In a separate WSL2 terminal:
 
