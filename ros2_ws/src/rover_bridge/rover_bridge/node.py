@@ -8,8 +8,6 @@ import threading
 import time
 from pathlib import Path
 
-import cv2
-import numpy as np
 import yaml
 from ament_index_python.packages import get_package_share_directory
 import rclpy
@@ -18,12 +16,12 @@ from geometry_msgs.msg import TransformStamped
 from nav_msgs.msg import Odometry
 from rclpy.node import Node
 from rclpy.qos import QoSProfile, ReliabilityPolicy, qos_profile_sensor_data
-from sensor_msgs.msg import BatteryState, CameraInfo, CompressedImage, Image
+from sensor_msgs.msg import BatteryState, CameraInfo, CompressedImage
 from std_msgs.msg import String
 from tf2_ros import TransformBroadcaster
 
 from .odometry import OdometryIntegrator
-from .protocol import depth_png_bytes, encode_cmd, read_rgbd_packet
+from .protocol import encode_cmd, read_rgbd_packet
 
 
 def default_calibration_file():
@@ -112,8 +110,6 @@ class RoverBridge(Node):
         self.declare_parameter("cmd_vel_timeout_s", 0.5)
         self.declare_parameter("telemetry_topic", "/rover/telemetry")
         self.declare_parameter("battery_topic", "/battery_state")
-        self.declare_parameter("rgb_topic", "/camera/color/image_raw")
-        self.declare_parameter("depth_topic", "/camera/depth/image_raw")
         self.declare_parameter("camera_info_topic", "/camera/color/camera_info")
         self.declare_parameter("odom_topic", "/odom")
         self.declare_parameter("odom_frame_id", "odom")
@@ -122,10 +118,7 @@ class RoverBridge(Node):
         self.declare_parameter("max_distance_delta_m", 2.0)
         self.declare_parameter("odom_pose_covariance", 0.05)
         self.declare_parameter("odom_twist_covariance", 0.1)
-        self.declare_parameter("publish_compressed", True)
-        self.declare_parameter("publish_raw", False)
         self.declare_parameter("frame_id", "oakd_rgb_optical_frame")
-        self.declare_parameter("camera_frame_id", "")
 
         self._pi_host = str(self.get_parameter("pi_host").value)
         self._command_port = int(self.get_parameter("command_port").value)
@@ -140,9 +133,7 @@ class RoverBridge(Node):
         self._cmd_vel_timeout = float(self.get_parameter("cmd_vel_timeout_s").value)
         if not math.isfinite(self._cmd_vel_timeout) or self._cmd_vel_timeout <= 0.0:
             raise ValueError("cmd_vel_timeout_s must be finite and positive")
-        configured_frame_id = str(self.get_parameter("frame_id").value)
-        legacy_frame_id = str(self.get_parameter("camera_frame_id").value)
-        self._camera_frame_id = legacy_frame_id or configured_frame_id
+        self._camera_frame_id = str(self.get_parameter("frame_id").value)
         self._odom_frame_id = str(self.get_parameter("odom_frame_id").value)
         self._base_frame_id = str(self.get_parameter("base_frame_id").value)
         calibration_file = str(self.get_parameter("calibration_file").value)
@@ -173,10 +164,6 @@ class RoverBridge(Node):
             raise ValueError("odom_pose_covariance must be finite and positive")
         if not math.isfinite(self._odom_twist_covariance) or self._odom_twist_covariance <= 0.0:
             raise ValueError("odom_twist_covariance must be finite and positive")
-        self._publish_compressed = bool(
-            self.get_parameter("publish_compressed").value
-        )
-        self._publish_raw = bool(self.get_parameter("publish_raw").value)
         self._stop_event = threading.Event()
 
         self._camera_packet_condition = threading.Condition()
@@ -208,36 +195,20 @@ class RoverBridge(Node):
         self._battery_pub = self.create_publisher(
             BatteryState, str(self.get_parameter("battery_topic").value), 10
         )
-        self._rgb_pub = None
-        self._depth_pub = None
-        if self._publish_raw:
-            self._rgb_pub = self.create_publisher(
-                Image,
-                str(self.get_parameter("rgb_topic").value),
-                qos_profile_sensor_data,
-            )
-            self._depth_pub = self.create_publisher(
-                Image,
-                str(self.get_parameter("depth_topic").value),
-                qos_profile_sensor_data,
-            )
-        self._color_compressed_pub = None
-        self._depth_compressed_pub = None
-        if self._publish_compressed:
-            compressed_qos = QoSProfile(
-                depth=10,
-                reliability=ReliabilityPolicy.RELIABLE,
-            )
-            self._color_compressed_pub = self.create_publisher(
-                CompressedImage,
-                "/camera/color/image_raw/compressed",
-                compressed_qos,
-            )
-            self._depth_compressed_pub = self.create_publisher(
-                CompressedImage,
-                "/camera/depth/image_raw/compressedDepth",
-                compressed_qos,
-            )
+        compressed_qos = QoSProfile(
+            depth=10,
+            reliability=ReliabilityPolicy.RELIABLE,
+        )
+        self._color_compressed_pub = self.create_publisher(
+            CompressedImage,
+            "/camera/color/image_raw/compressed",
+            compressed_qos,
+        )
+        self._depth_compressed_pub = self.create_publisher(
+            CompressedImage,
+            "/camera/depth/image_raw/compressedDepth",
+            compressed_qos,
+        )
         self._camera_info_pub = self.create_publisher(
             CameraInfo,
             str(self.get_parameter("camera_info_topic").value),
@@ -496,57 +467,17 @@ class RoverBridge(Node):
 
     def _publish_rgbd(self, header, rgb_bytes, depth_bytes):
         stamp = self._stamp_from(header)
-        if self._publish_compressed:
-            self._color_compressed_pub.publish(
-                build_color_compressed(stamp, self._camera_frame_id, rgb_bytes)
-            )
-            self._depth_compressed_pub.publish(
-                build_depth_compressed(stamp, self._camera_frame_id, depth_bytes)
-            )
-
-        if self._publish_raw:
-            self._publish_raw_rgbd(header, stamp, rgb_bytes, depth_bytes)
+        self._color_compressed_pub.publish(
+            build_color_compressed(stamp, self._camera_frame_id, rgb_bytes)
+        )
+        self._depth_compressed_pub.publish(
+            build_depth_compressed(stamp, self._camera_frame_id, depth_bytes)
+        )
 
         info_msg = self._camera_info_message(header.get("camera_info"), stamp)
         self._camera_info_pub.publish(info_msg)
         with self._stats_lock:
             self._pub_count += 1
-
-    def _publish_raw_rgbd(self, header, stamp, rgb_bytes, depth_bytes):
-        rgb = cv2.imdecode(np.frombuffer(rgb_bytes, dtype=np.uint8), cv2.IMREAD_COLOR)
-        depth_png = depth_png_bytes(depth_bytes)
-        depth = cv2.imdecode(
-            np.frombuffer(depth_png, dtype=np.uint8), cv2.IMREAD_UNCHANGED
-        )
-        if rgb is None or depth is None:
-            raise ValueError("could not decode rover RGB-D packet")
-        if depth.ndim != 2:
-            raise ValueError("rover depth image is not single-channel")
-        if depth.dtype != np.uint16:
-            depth = depth.astype(np.uint16)
-        rgb = np.ascontiguousarray(rgb)
-        depth = np.ascontiguousarray(depth)
-
-        rgb_msg = Image()
-        rgb_msg.header.stamp = stamp
-        rgb_msg.header.frame_id = self._camera_frame_id
-        rgb_msg.height, rgb_msg.width = rgb.shape[:2]
-        rgb_msg.encoding = "bgr8"
-        rgb_msg.is_bigendian = 0
-        rgb_msg.step = rgb_msg.width * 3
-        rgb_msg.data = rgb.tobytes()
-
-        depth_msg = Image()
-        depth_msg.header.stamp = stamp
-        depth_msg.header.frame_id = self._camera_frame_id
-        depth_msg.height, depth_msg.width = depth.shape[:2]
-        depth_msg.encoding = "16UC1"
-        depth_msg.is_bigendian = 0
-        depth_msg.step = depth_msg.width * 2
-        depth_msg.data = depth.tobytes()
-
-        self._rgb_pub.publish(rgb_msg)
-        self._depth_pub.publish(depth_msg)
 
     def _log_camera_stats(self):
         now = time.monotonic()

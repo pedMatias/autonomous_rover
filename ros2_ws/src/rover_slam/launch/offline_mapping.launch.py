@@ -77,7 +77,6 @@ def generate_launch_description():
         DeclareLaunchArgument("depth_topic", default_value="/oak/stereo/image_raw"),
         DeclareLaunchArgument("rgb_image_transport", default_value="raw"),
         DeclareLaunchArgument("depth_image_transport", default_value="raw"),
-        DeclareLaunchArgument("compressed", default_value="false"),
         DeclareLaunchArgument("qos", default_value="0"),
         DeclareLaunchArgument("qos_camera_info", default_value="0"),
         DeclareLaunchArgument(

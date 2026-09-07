@@ -45,7 +45,7 @@ The live `rover_bridge` publishes:
 /battery_state                sensor_msgs/msg/BatteryState
 /camera/color/image_raw/compressed
 /camera/depth/image_raw/compressedDepth
-/camera/color/camera_info     sensor_msgs/msg/CameraInfo
+/oak/rgb/camera_info          sensor_msgs/msg/CameraInfo
 /odom                         nav_msgs/msg/Odometry
 /tf                           odom -> base_link
 ```

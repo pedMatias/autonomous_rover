@@ -40,8 +40,8 @@ The primary camera interfaces are the compressed topics
 `/camera/depth/image_raw/compressedDepth` (`sensor_msgs/CompressedImage`, ROS2
 compressedDepth PNG). The bridge forwards the Pi payloads without decoding
 them. Camera calibration is published on `/oak/rgb/camera_info` for every
-RGB-D frame with the matching camera timestamp. Raw image topics remain
-available only for debugging with `publish_raw:=true`.
+RGB-D frame with the matching camera timestamp. The bridge does not publish
+raw `sensor_msgs/Image` topics; consumers decode compressed data on WSL2.
 
 RTAB-Map consumers decode the compressed topics on the WSL2 side. The current
 Jazzy mapping launch starts explicit parameter-based RGB and depth
@@ -280,14 +280,13 @@ ros2 topic hz /camera/depth/image_raw/compressedDepth
 ```
 
 The compressed bridge publishers use `RELIABLE` QoS so standard image transport
-subscribers can connect. Optional raw debug publishers use sensor-data
-`BEST_EFFORT` QoS. Confirm the publisher QoS with `ros2 topic info -v` before
-measuring the rate.
+subscribers can connect. CameraInfo uses sensor-data `BEST_EFFORT` QoS. Confirm
+the publisher QoS with `ros2 topic info -v` before measuring the rate.
 
 You should see `/battery_state`, `/camera/color/image_raw/compressed`,
 `/camera/depth/image_raw/compressedDepth`, `/oak/rgb/camera_info`, and
-`/rover/telemetry`. The raw image topics are present only when the bridge is
-started with `publish_raw:=true`.
+`/rover/telemetry`. Raw `sensor_msgs/Image` topics are not part of the active
+bridge interface.
 
 To check the compressed depth transport and recover raw images for a consumer:
 
@@ -301,14 +300,8 @@ ros2 run image_transport republish \
 ros2 topic hz /camera/depth/image_raw_check
 ```
 
-For a legacy raw-image debugging run, enable the optional publishers:
-
-```bash
-ros2 run rover_bridge rover_bridge \
-    --ros-args \
-    -p pi_host:=192.168.50.5 \
-    -p publish_raw:=true
-```
+Raw `/oak/...` topics in the recorder workflow are a separate offline-bag
+interface and should not be confused with bridge output.
 
 ### 4. WSL2 terminal 3: send a controlled motion command
 

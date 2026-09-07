@@ -9,7 +9,7 @@ RTAB-Map requires four synchronized inputs: RGB image, registered depth image, c
 │  OAK-D Lite ──► Pi camera_stream.py ──► TCP ──► rover_bridge           │
 │        ├─ /camera/color/image_raw          (compressed → decoded once) │
 │        ├─ /camera/depth/image_raw          (aligned depth)             │
-│        └─ /camera/color/camera_info        (intrinsics)                │
+│        └─ /oak/rgb/camera_info             (intrinsics)                │
 │                                                                        │
 │  ESP32 encoders ──► rover_agent.py ──► /rover/telemetry                │
 │        └─► odometry integrator ──► /odom  (nav_msgs/Odometry)          │

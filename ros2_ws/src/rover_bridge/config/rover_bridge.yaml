@@ -12,8 +12,6 @@ rover_bridge:
     cmd_vel_timeout_s: 0.5
     telemetry_topic: /rover/telemetry
     battery_topic: /battery_state
-    rgb_topic: /camera/color/image_raw
-    depth_topic: /camera/depth/image_raw
     camera_info_topic: /oak/rgb/camera_info
     odom_topic: /odom
     odom_frame_id: odom
@@ -21,6 +19,4 @@ rover_bridge:
     max_distance_delta_m: 2.0
     odom_pose_covariance: 0.05
     odom_twist_covariance: 0.1
-    publish_compressed: true
-    publish_raw: false
     frame_id: oak_rgb_camera_optical_frame
