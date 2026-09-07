@@ -119,8 +119,6 @@ export FASTDDS_BUILTIN_TRANSPORTS=LARGE_DATA
 ros2 run rover_bridge rover_bridge \
   --ros-args \
   -p pi_host:="$PI_HOST" \
-  -p publish_compressed:=true \
-  -p publish_raw:=false \
   -p camera_socket_timeout_s:=10.0
 ```
 
@@ -147,7 +145,7 @@ export FASTDDS_BUILTIN_TRANSPORTS=LARGE_DATA
 ros2 topic list
 ros2 topic info -v /camera/color/image_raw/compressed
 ros2 topic info -v /camera/depth/image_raw/compressedDepth
-ros2 topic info -v /camera/color/camera_info
+ros2 topic info -v /oak/rgb/camera_info
 ```
 
 Expected topics:
@@ -155,7 +153,7 @@ Expected topics:
 ```text
 /camera/color/image_raw/compressed
 /camera/depth/image_raw/compressedDepth
-/camera/color/camera_info
+/oak/rgb/camera_info
 ```
 
 Expected image publisher QoS:
@@ -166,8 +164,8 @@ Durability: VOLATILE
 ```
 
 The compressed publishers use `RELIABLE` so that the standard
-`image_transport` republisher can subscribe. Optional raw debug publishers,
-enabled with `publish_raw:=true`, continue to use sensor-data `BEST_EFFORT` QoS.
+`image_transport` republisher can subscribe. The bridge has no active raw image
+publishers; decoding happens in the consumer process.
 
 ## 7. Measure Compressed Topic Rates
 
@@ -288,35 +286,7 @@ No camera connection-loss events during the 10-minute soak.
 
 Some `queue_drops` are acceptable if publishing or a test subscriber is slower than the source. The important behavior is that the reader continues receiving packets and stale frames do not accumulate.
 
-## 11. Optional Legacy Raw A/B Test
-
-Stop the normal bridge with `Ctrl+C`, then start it with raw publishing enabled:
-
-```bash
-cd ~/projects/autonomous_rover
-source /opt/ros/$ROS_DISTRO/setup.bash
-source ros2_ws/install/setup.bash
-export PI_HOST=192.168.0.12
-export FASTDDS_BUILTIN_TRANSPORTS=LARGE_DATA
-
-ros2 run rover_bridge rover_bridge \
-  --ros-args \
-  -p pi_host:="$PI_HOST" \
-  -p publish_compressed:=false \
-  -p publish_raw:=true \
-  -p camera_socket_timeout_s:=10.0
-```
-
-Measure the legacy topics only if a raw comparison is needed:
-
-```bash
-ros2 topic hz -w 30 /camera/color/image_raw
-ros2 topic hz -w 30 /camera/depth/image_raw
-```
-
-Stop this bridge before returning to the compressed test.
-
-## 12. Shutdown
+## 11. Shutdown
 
 Send a zero motion command before stopping the bridge if any motion command was sent:
 

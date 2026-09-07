@@ -17,6 +17,10 @@ rover_bridge:
     odom_frame_id: odom
     base_frame_id: base_link
     max_distance_delta_m: 2.0
+    min_odom_dt_s: 0.005
+    max_odom_dt_s: 0.5
+    max_linear_velocity_mps: 1.0
+    max_angular_velocity_rps: 5.0
     odom_pose_covariance: 0.05
     odom_twist_covariance: 0.1
     frame_id: oak_rgb_camera_optical_frame

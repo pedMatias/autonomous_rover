@@ -34,8 +34,7 @@ rover_bridge (WSL2)
   └─ publisher thread: mailbox → CompressedImage pubs (NO decode)
         ├─ /camera/color/image_raw/compressed       format="jpeg"
         ├─ /camera/depth/image_raw/compressedDepth  format="16UC1; compressedDepth png"
-        ├─ /camera/color/camera_info                1 Hz timer (not per frame)
-        └─ (optional, publish_raw:=true) legacy raw Image topics for debugging
+        └─ /oak/rgb/camera_info                     per RGB-D frame
 Consumers decode once, in their own process, via image_transport hints.
 ```
 
@@ -113,10 +112,9 @@ def _build_depth_compressed(self, header, depth_png: bytes) -> CompressedImage:
     return msg
 ```
 
-4. **New parameters:** `publish_compressed` (default `true`), `publish_raw`
-   (default `false`, keeps the existing decode path for A/B debugging),
-   `frame_id` (default `"oakd_rgb_optical_frame"`).
-5. **CameraInfo:** move to a 1 Hz `create_timer` publisher instead of per frame.
+4. **Camera frame:** use the compressed-only bridge with `frame_id`
+  (default `"oakd_rgb_optical_frame"`).
+5. **CameraInfo:** publish once per RGB-D frame with the matching timestamp.
 6. **Stats:** every 5 s log one line: `rx_fps, pub_fps, dropped_frames, queue_drops`.
 7. Extract message construction into pure functions (as sketched above) so they are
    unit-testable without a running ROS2 graph.
@@ -174,7 +172,7 @@ Branch: `fix/bridge-compressed-forwarding`
 
 1. `refactor(bridge): split camera read/publish into threads with drop-stale mailbox`
 2. `feat(bridge): forward JPEG/PNG as CompressedImage + compressedDepth`
-3. `feat(bridge): add publish_raw/publish_compressed params, 1 Hz camera_info, stats logging`
+3. `feat(bridge): make compressed forwarding and per-frame CameraInfo the active path`
 4. `feat(pi): add capture stamp + seq to camera packet header`
 5. `test(bridge): header round-trip + message builders`
 6. `docs: phase 1 plan, measurement runbook, LARGE_DATA env setup`
@@ -192,7 +190,8 @@ Branch: `fix/bridge-compressed-forwarding`
 | Bridge log stats | none | `rx/pub/drop` every 5 s |
 | Consumer raw check (republish) | n/a | works, or fallback decision recorded |
 
-**Rollback:** `publish_raw:=true` restores current behavior on the same branch.
+Raw `/oak/...` recorder topics remain available through the separate Pi recorder;
+the network bridge no longer exposes a raw-image fallback.
 
 ---
 

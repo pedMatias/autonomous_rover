@@ -10,7 +10,8 @@ Command protocol (client -> command_port)::
 
 Telemetry protocol (telemetry_port -> client)::
 
-    {"type":"telemetry","seq":42,"ts":1710000000.123,"data":{...}}
+    {"type":"telemetry","seq":42,"ts":1710000000.123,
+     "data":{...},"cmd_echo":{"left_mps":0.2,"right_mps":0.2,"seq":12}}
 """
 import argparse
 import json
@@ -68,6 +69,21 @@ def twist_to_wheels(vx, wz, wheel_separation, max_wheel_speed):
     return left, right
 
 
+def limit_wheel_speeds(previous, target, elapsed_s, max_acceleration_mps2):
+    """Limit a normal wheel command's change over the elapsed interval."""
+    if max_acceleration_mps2 <= 0.0:
+        return target
+    maximum_delta = max(0.0, elapsed_s) * max_acceleration_mps2
+    limited = []
+    for previous_speed, target_speed in zip(previous, target):
+        delta = max(
+            -maximum_delta,
+            min(maximum_delta, target_speed - previous_speed),
+        )
+        limited.append(previous_speed + delta)
+    return tuple(limited)
+
+
 class RoverAgent:
     def __init__(self, agent_config, calibration_config, logger, base=None):
         self.config = agent_config
@@ -79,12 +95,13 @@ class RoverAgent:
         )
         self.stop_event = threading.Event()
         self.command_lock = threading.Lock()
-        self.telemetry_clients = set()
+        self.telemetry_client = None
         self.telemetry_lock = threading.Lock()
         self.command_client = None
         self.last_command_time = time.monotonic()
         self.last_command_seq = None
         self.last_wheels = (0.0, 0.0)
+        self.last_wheel_update_time = time.monotonic()
         self.last_voltage = None
         self.telemetry_seq = 0
         self.threads = []
@@ -115,9 +132,9 @@ class RoverAgent:
         self.stop_event.set()
         self._send_wheels(0.0, 0.0, "shutdown")
         with self.telemetry_lock:
-            clients = list(self.telemetry_clients)
-            self.telemetry_clients.clear()
-        for client in clients:
+            client = self.telemetry_client
+            self.telemetry_client = None
+        if client is not None:
             try:
                 client.close()
             except OSError:
@@ -128,10 +145,13 @@ class RoverAgent:
             except OSError:
                 pass
 
-    def _send_wheels(self, left, right, reason="command"):
+    def _send_wheels(self, left, right, reason="command", command_seq=None):
         with self.command_lock:
             self.base.base_speed_ctrl(left, right)
             self.last_wheels = (left, right)
+            self.last_wheel_update_time = time.monotonic()
+            if reason == "command":
+                self.last_command_seq = command_seq
         if reason != "command":
             self.log.info("wheel command L=%.3f R=%.3f (%s)", left, right, reason)
 
@@ -221,10 +241,18 @@ class RoverAgent:
             float(self.config.get("wheel_separation_m", 0.314)),
             float(self.config.get("max_wheel_speed_mps", 0.5)),
         )
-        self._send_wheels(left, right)
+        with self.command_lock:
+            previous_wheels = self.last_wheels
+            elapsed_s = time.monotonic() - self.last_wheel_update_time
+        left, right = limit_wheel_speeds(
+            previous_wheels,
+            (left, right),
+            elapsed_s,
+            float(self.config.get("max_wheel_accel_mps2", 1.0)),
+        )
+        self._send_wheels(left, right, command_seq=command.get("seq"))
         with self.command_lock:
             self.last_command_time = time.monotonic()
-            self.last_command_seq = command.get("seq")
 
     def _telemetry_server(self):
         host = self.config.get("bind_host", "0.0.0.0")
@@ -232,7 +260,7 @@ class RoverAgent:
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as server:
             server.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
             server.bind((host, port))
-            server.listen(2)
+            server.listen(1)
             server.settimeout(1.0)
             while not self.stop_event.is_set():
                 try:
@@ -241,10 +269,24 @@ class RoverAgent:
                     continue
                 client.settimeout(0.2)
                 with self.telemetry_lock:
-                    self.telemetry_clients.add(client)
+                    previous_client = self.telemetry_client
+                    self.telemetry_client = client
+                if previous_client is not None:
+                    try:
+                        previous_client.close()
+                    except OSError:
+                        pass
                 self.log.info("Telemetry client connected: %s", address)
 
     def _publish_telemetry(self, payload):
+        with self.command_lock:
+            left_mps, right_mps = self.last_wheels
+            command_seq = self.last_command_seq
+        cmd_echo = {
+            "left_mps": left_mps,
+            "right_mps": right_mps,
+            "seq": command_seq,
+        }
         with self.telemetry_lock:
             self.telemetry_seq += 1
             message = {
@@ -253,16 +295,19 @@ class RoverAgent:
                 "ts": payload["ts"],
                 "data": payload["data"],
                 "voltage_v": payload["voltage_v"],
+                "cmd_echo": cmd_echo,
             }
-            encoded = (json.dumps(message, separators=(",", ":")) + "\n").encode("utf-8")
-            disconnected = []
-            for client in self.telemetry_clients:
-                try:
-                    client.sendall(encoded)
-                except (OSError, socket.timeout):
-                    disconnected.append(client)
-            for client in disconnected:
-                self.telemetry_clients.discard(client)
+            encoded = (
+                json.dumps(message, separators=(",", ":")) + "\n"
+            ).encode("utf-8")
+            client = self.telemetry_client
+            if client is None:
+                return
+            try:
+                client.sendall(encoded)
+            except (OSError, socket.timeout):
+                if self.telemetry_client is client:
+                    self.telemetry_client = None
                 try:
                     client.close()
                 except OSError:

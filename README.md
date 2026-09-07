@@ -196,6 +196,12 @@ The bridge reconnects its command, telemetry, and camera sockets independently.
 Camera packets use a separate, longer socket timeout because one RGB-D packet
 contains two compressed images and may take longer to arrive than a telemetry
 line. Command and telemetry timeouts remain short.
+The Pi telemetry service accepts one active client and closes the previous
+client on replacement, so a reconnect cannot leave two telemetry streams
+interleaved in the bridge. Each telemetry frame carries a monotonically
+increasing `seq` and a `cmd_echo` object containing the most recently applied
+wheel command. The echo confirms the command placed on the Pi's UART write
+queue; it is not an ESP32 hardware acknowledgement.
 The Pi camera server accepts one client at a time, so a raw TCP measurement and
 the bridge must not run simultaneously.
 The Pi watchdog remains the final motor stop mechanism if WSL2, ROS2, or the
@@ -380,6 +386,13 @@ an RTAB-Map motion prior, but it is not navigation-grade ground truth on
 carpet or during skid turns. Visual registration and loop closures remain the
 authority for correcting drift.
 
+The live and recorder integrators use encoder deltas, not cumulative encoder
+positions, for every motion step. A too-short, too-long, or implausibly fast
+interval resets the encoder baseline without changing the current pose. The
+bridge also resets that baseline when telemetry sequence numbers are missing,
+duplicated, reordered, or skipped. A packet-loss run should therefore be
+repeated before it is used for mapping-quality data.
+
 ## Verification sequence
 
 Run these checks from the appropriate host, in order.
@@ -414,6 +427,10 @@ Run these checks from the appropriate host, in order.
     # Compare odl/odr deltas with a tape-measured straight run.
     ros2 topic echo --once /rover/telemetry
     ```
+
+    Confirm that `seq` is contiguous during a stationary period, that
+    `cmd_echo` changes when `/cmd_vel` changes, and that `/odom` remains still
+    after the rover stops. Treat any sequence gap as a failed collection run.
 
 7. **Recording and mapping:** record a complete WSL2 bag, then replay it into
     RTAB-Map with `use_sim_time:=true`. Start RTAB-Map before `ros2 bag play`.

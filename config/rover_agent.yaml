@@ -8,6 +8,8 @@ command_timeout_s: 0.5
 
 # T:1 accepts left/right wheel speeds in m/s.
 max_wheel_speed_mps: 0.5
+# Normal command acceleration limit; safety stops remain immediate.
+max_wheel_accel_mps2: 1.0
 wheel_separation_m: 0.172
 
 # UART used by the Waveshare Pi 5 / ESP32 link.

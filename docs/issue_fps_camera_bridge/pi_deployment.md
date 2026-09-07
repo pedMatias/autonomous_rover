@@ -122,8 +122,6 @@ Start the bridge in a dedicated terminal:
 ros2 run rover_bridge rover_bridge \
   --ros-args \
   -p pi_host:="$PI_HOST" \
-  -p publish_compressed:=true \
-  -p publish_raw:=false \
   -p camera_socket_timeout_s:=10.0
 ```
 

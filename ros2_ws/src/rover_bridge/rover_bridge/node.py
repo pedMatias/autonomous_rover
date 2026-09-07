@@ -95,6 +95,15 @@ def fresh_twist(twist, last_update_time, now, timeout):
     return twist
 
 
+def telemetry_sequence_gap(previous_sequence, sequence):
+    """Return whether a telemetry sequence cannot follow the previous frame."""
+    if sequence is None:
+        return previous_sequence is not None
+    if type(sequence) is not int:
+        return True
+    return previous_sequence is not None and sequence != previous_sequence + 1
+
+
 class RoverBridge(Node):
     def __init__(self):
         super().__init__("rover_bridge")
@@ -116,6 +125,10 @@ class RoverBridge(Node):
         self.declare_parameter("base_frame_id", "base_link")
         self.declare_parameter("calibration_file", default_calibration_file())
         self.declare_parameter("max_distance_delta_m", 2.0)
+        self.declare_parameter("min_odom_dt_s", 0.005)
+        self.declare_parameter("max_odom_dt_s", 0.5)
+        self.declare_parameter("max_linear_velocity_mps", 1.0)
+        self.declare_parameter("max_angular_velocity_rps", 5.0)
         self.declare_parameter("odom_pose_covariance", 0.05)
         self.declare_parameter("odom_twist_covariance", 0.1)
         self.declare_parameter("frame_id", "oakd_rgb_optical_frame")
@@ -147,6 +160,14 @@ class RoverBridge(Node):
             max_distance_delta_m=float(
                 self.get_parameter("max_distance_delta_m").value
             ),
+            min_dt_s=float(self.get_parameter("min_odom_dt_s").value),
+            max_dt_s=float(self.get_parameter("max_odom_dt_s").value),
+            max_linear_velocity_mps=float(
+                self.get_parameter("max_linear_velocity_mps").value
+            ),
+            max_angular_velocity_rps=float(
+                self.get_parameter("max_angular_velocity_rps").value
+            ),
         )
         self.get_logger().info(
             f"Using calibration file {calibration_file}: "
@@ -176,6 +197,7 @@ class RoverBridge(Node):
         self._dropped_frames = 0
         self._queue_drops = 0
         self._last_sequence = None
+        self._last_telemetry_sequence = None
         self._last_stats_time = time.monotonic()
         self._last_stats_rx = 0
         self._last_stats_pub = 0
@@ -347,7 +369,8 @@ class RoverBridge(Node):
         raw.data = json.dumps(payload, separators=(",", ":"))
         self._telemetry_pub.publish(raw)
 
-        self._publish_odometry(payload)
+        sequence_gap = self._telemetry_sequence_gap(payload)
+        self._publish_odometry(payload, sequence_gap=sequence_gap)
 
         voltage = payload.get("voltage_v")
         if isinstance(voltage, (int, float)) and math.isfinite(voltage):
@@ -357,7 +380,28 @@ class RoverBridge(Node):
             battery.present = True
             self._battery_pub.publish(battery)
 
-    def _publish_odometry(self, payload):
+    def _telemetry_sequence_gap(self, payload):
+        sequence = payload.get("seq")
+        if sequence is None:
+            return False
+        if type(sequence) is not int:
+            self.get_logger().warning(
+                "Ignoring non-integer rover telemetry sequence"
+            )
+            return True
+        previous_sequence = self._last_telemetry_sequence
+        gap = telemetry_sequence_gap(previous_sequence, sequence)
+        self._last_telemetry_sequence = sequence
+        if gap:
+            self.get_logger().warning(
+                "Rover telemetry sequence gap: previous=%s current=%s; "
+                "discarding one odometry interval",
+                previous_sequence,
+                sequence,
+            )
+        return gap
+
+    def _publish_odometry(self, payload, sequence_gap=False):
         data = payload.get("data")
         if not isinstance(data, dict):
             return
@@ -369,6 +413,8 @@ class RoverBridge(Node):
         if not all(math.isfinite(float(value)) for value in (left_distance_unit, right_distance_unit, timestamp)):
             self.get_logger().warning("Ignoring non-finite wheel-distance telemetry")
             return
+        if sequence_gap:
+            self._odom.reset_baseline()
         try:
             state = self._odom.update(left_distance_unit, right_distance_unit, timestamp)
         except ValueError as exc:

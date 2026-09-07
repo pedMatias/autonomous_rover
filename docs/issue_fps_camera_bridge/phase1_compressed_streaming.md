@@ -17,9 +17,8 @@ The bridge in `ros2_ws/src/rover_bridge` now:
 - Publishes JPEG RGB on `/camera/color/image_raw/compressed` with format `jpeg`.
 - Publishes ROS2 compressed-depth PNG on `/camera/depth/image_raw/compressedDepth` with format `16UC1; compressedDepth png`.
 - Uses `RELIABLE` and `VOLATILE` QoS for the compressed publishers so standard `image_transport` subscribers can connect.
-- Keeps the previous raw image publishers behind `publish_raw:=true`.
-- Enables compressed publishing by default with `publish_compressed:=true`.
-- Publishes the latest camera info at 1 Hz on `/camera/color/camera_info` instead of once for every frame.
+- Publishes compressed RGB/depth unconditionally on the active bridge topics.
+- Publishes camera info for every RGB-D frame on `/oak/rgb/camera_info` with the matching timestamp.
 - Prefers a future Pi `stamp` header field, accepts the current legacy `ts` field, and falls back to WSL2 arrival time with a one-time warning if neither is present.
 - Tracks received frames, successfully published frames, source sequence gaps, and mailbox replacements.
 - Logs `rx_fps`, `pub_fps`, `dropped_frames`, and `queue_drops` every 5 seconds.
@@ -34,21 +33,12 @@ Pi deployment and service restart commands are in
 ## Parameters
 
 ```yaml
-publish_compressed: true
-publish_raw: false
 frame_id: oakd_rgb_optical_frame
-camera_info_topic: /camera/color/camera_info
+camera_info_topic: /oak/rgb/camera_info
 ```
 
-The legacy raw topic parameters remain available:
-
-```yaml
-rgb_topic: /camera/color/image_raw
-depth_topic: /camera/depth/image_raw
-```
-
-Compressed publishers use `RELIABLE` QoS. Optional raw debug publishers use
-the sensor-data `BEST_EFFORT` profile.
+Compressed publishers use `RELIABLE` QoS. CameraInfo uses the sensor-data
+`BEST_EFFORT` profile and is published once per RGB-D frame.
 
 ## WSL2 Prerequisites
 
@@ -126,11 +116,11 @@ If the republished depth flows and contains sane values, the passthrough convent
 ## Live Validation Procedure
 
 1. Stop the bridge and measure the Pi raw TCP baseline.
-2. Start the bridge with `publish_compressed:=true` and `publish_raw:=false`.
+2. Start the bridge with its default compressed publishers.
 3. Measure both compressed topics with `ros2 topic hz -w 30`.
 4. Measure both compressed topics with `ros2 topic bw`.
 5. Run the compressed-depth republish check above.
 6. Run a 10-minute soak and count `Rover camera connection lost` messages.
-7. Repeat with `publish_raw:=true` only when legacy raw topics are needed for comparison.
+7. Keep raw `/oak/...` topics scoped to the separate Pi recorder and offline-bag workflow.
 
 The Pi-side low-resolution/resource experiment and Pi capture/encode/send timing are outside this WSL2-only change and must be reported from the Raspberry Pi.
