@@ -1,3 +1,4 @@
+# RTAB-Map core parameter overrides
 RGBD/NeighborLinkRefining: "true"
 RGBD/ProximityBySpace: "true"
 RGBD/ProximityByTime: "false"
@@ -5,3 +6,9 @@ Reg/Strategy: "0"
 Reg/Force3DoF: "true"
 Optimizer/Strategy: "2"
 Grid/FromDepth: "true"
+
+# Depth filtering & Keyframe density for clean 3D reconstruction
+Grid/RangeMax: "2.5"
+Grid/RangeMin: "0.3"
+RGBD/LinearUpdate: "0.05"
+RGBD/AngularUpdate: "0.05"

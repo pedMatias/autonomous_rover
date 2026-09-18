@@ -10,6 +10,8 @@ def generate_launch_description():
     pi_host = LaunchConfiguration("pi_host")
     depth_topic = LaunchConfiguration("depth_topic")
     depth_preview_topic = LaunchConfiguration("depth_preview_topic")
+    camera_info_topic = LaunchConfiguration("camera_info_topic")
+    pointcloud_topic = LaunchConfiguration("pointcloud_topic")
     package_share = FindPackageShare("rover_slam")
 
     live_bringup = IncludeLaunchDescription(
@@ -48,6 +50,20 @@ def generate_launch_description():
         ],
     )
 
+    pointcloud_preview = Node(
+        package="rover_slam",
+        executable="gcs_pointcloud_preview",
+        name="gcs_pointcloud_preview",
+        output="screen",
+        parameters=[
+            {
+                "depth_topic": depth_topic,
+                "camera_info_topic": camera_info_topic,
+                "pointcloud_topic": pointcloud_topic,
+            }
+        ],
+    )
+
     dashboard_server = ExecuteProcess(
         cmd=[
             "python3",
@@ -70,8 +86,17 @@ def generate_launch_description():
             "depth_preview_topic",
             default_value="/gcs/depth_preview/image_raw",
         ),
+        DeclareLaunchArgument(
+            "camera_info_topic",
+            default_value="/oak/rgb/camera_info",
+        ),
+        DeclareLaunchArgument(
+            "pointcloud_topic",
+            default_value="/gcs/pointcloud",
+        ),
         live_bringup,
         depth_preview,
+        pointcloud_preview,
         rosbridge,
         video_server,
         dashboard_server,

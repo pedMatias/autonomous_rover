@@ -86,6 +86,23 @@
     .signal-table tr:last-child td { border-bottom: 0; }
     .trajectory { padding: 13px 17px 17px; }
     canvas { display: block; width: 100%; height: 190px; background: #101a1e; border: 1px solid var(--line); }
+    .cloud-feed { position: relative; aspect-ratio: 16 / 9; overflow: hidden; background: #081013; }
+    .cloud-feed canvas { width: 100%; height: 100%; border: 0; cursor: grab; }
+    .cloud-feed canvas:active { cursor: grabbing; }
+    .cloud-legend { position: absolute; right: 12px; bottom: 11px; padding: 5px 8px; border: 1px solid rgba(255,255,255,.16); background: rgba(5, 10, 12, .7); color: var(--muted); font: 10px "Space Mono", monospace; }
+    .controller { padding-bottom: 16px; }
+    .drive-status { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 14px 17px 0; color: var(--muted); font: 10px "Space Mono", monospace; text-transform: uppercase; }
+    .drive-status strong { color: var(--danger); font-weight: 400; }
+    .drive-status strong.armed { color: var(--accent); }
+    .drive-controls { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; max-width: 240px; margin: 14px auto 0; }
+    .drive-controls button, .drive-arm, .drive-stop { min-height: 42px; border: 1px solid var(--line); background: var(--panel-raised); color: var(--ink); font: 13px "Space Mono", monospace; cursor: pointer; }
+    .drive-controls button:hover, .drive-arm:hover { border-color: var(--cyan); }
+    .drive-controls button:disabled { cursor: not-allowed; opacity: .38; }
+    .drive-controls button.active { border-color: var(--accent); color: var(--accent); }
+    .drive-arm { display: block; width: calc(100% - 34px); margin: 14px 17px 0; }
+    .drive-arm.armed { border-color: var(--accent); color: var(--accent); }
+    .drive-stop { display: block; width: calc(100% - 34px); margin: 10px 17px 0; border-color: rgba(241,120,120,.6); color: var(--danger); }
+    .drive-stop:hover { background: rgba(241,120,120,.12); }
     .empty { display: grid; height: 100%; place-items: center; color: var(--muted); font: 11px "Space Mono", monospace; }
     @media (max-width: 980px) { .layout { grid-template-columns: 1fr; } .side { grid-template-columns: repeat(2, minmax(0, 1fr)); } .metrics { grid-column: span 1; } }
     @media (max-width: 650px) { header, main { width: min(100% - 24px, 1440px); } header { align-items: start; flex-direction: column; padding-top: 22px; } .visuals, .side { grid-template-columns: 1fr; } .topic { max-width: 48%; } }
@@ -106,6 +123,10 @@
         <div class="panel-head"><div><div class="kicker">5 Hz local preview</div><h2 class="panel-title">Depth camera</h2></div><div class="topic">/gcs/depth_preview/image_raw</div></div>
         <div class="feed depth"><img id="depth-feed" alt="Live depth camera feed"><div id="depth-status" class="feed-status">WAITING FOR VIDEO</div></div>
       </article>
+      <article class="panel feed-panel cloud-panel">
+        <div class="panel-head"><div><div class="kicker">Host-side projection</div><h2 class="panel-title">Point cloud</h2></div><div class="topic">/gcs/pointcloud</div></div>
+        <div class="cloud-feed"><canvas id="pointcloud" width="900" height="500" aria-label="Live point cloud"></canvas><div id="cloud-status" class="cloud-legend">WAITING FOR POINT CLOUD</div></div>
+      </article>
     </section>
     <aside class="side">
       <section class="panel metrics" aria-label="Key telemetry">
@@ -123,6 +144,17 @@
           <div class="data-row"><dt>Angular velocity</dt><dd id="odom-w">-- rad/s</dd></div>
         </dl>
         <div class="trajectory"><canvas id="trajectory" width="600" height="190" aria-label="Odometry trajectory"></canvas></div>
+      </section>
+      <section class="panel controller" aria-label="ROS2 drive control">
+        <div class="panel-head"><div><div class="kicker">ROS2 command</div><h2 class="panel-title">Drive control</h2></div><div class="topic">/cmd_vel</div></div>
+        <div class="drive-status"><span>MAX 0.30 M/S / 0.20 RAD/S</span><strong id="drive-state">DISARMED</strong></div>
+        <button id="drive-arm" class="drive-arm" type="button" aria-pressed="false">ARM DRIVE</button>
+        <div class="drive-controls">
+          <span></span><button type="button" data-vx="0.30" data-wz="0" title="Forward">&#8593;</button><span></span>
+          <button type="button" data-vx="0" data-wz="0.20" title="Turn left">&#8592;</button><button type="button" data-stop="true" title="Stop">&#9632;</button><button type="button" data-vx="0" data-wz="-0.20" title="Turn right">&#8594;</button>
+          <span></span><button type="button" data-vx="-0.30" data-wz="0" title="Reverse">&#8595;</button><span></span>
+        </div>
+        <button id="drive-stop" class="drive-stop" type="button">EMERGENCY STOP</button>
       </section>
       <section class="panel">
         <div class="panel-head"><div><div class="kicker">Live signals</div><h2 class="panel-title">ROS traffic</h2></div></div>
@@ -144,7 +176,10 @@
       rgb: { topic: query.get("rgb") || "/camera/color/image_raw", type: query.get("rgb_type") || "ros_compressed" },
       depth: { topic: query.get("depth") || "/gcs/depth_preview/image_raw", type: query.get("depth_type") || "ros_compressed" },
     };
-    const state = { last: {}, points: [], pose: null };
+    const state = { last: {}, points: [], pose: null, cloud: [] };
+    let rosSocket = null;
+    const drive = { armed: false, timer: null, button: null };
+    const cloudView = { yaw: 0.25, pitch: -0.15, dragging: false, x: 0, y: 0 };
     const $ = (id) => document.getElementById(id);
     const streamUrl = (stream) => `${videoBase}/stream?topic=${stream.topic}&type=${encodeURIComponent(stream.type)}&quality=70&width=720&height=720`;
     ["rgb", "depth"].forEach((kind) => {
@@ -177,6 +212,45 @@
       context.stroke();
       const [x, y] = project(state.points[state.points.length - 1]); context.fillStyle = "#d4f05f"; context.beginPath(); context.arc(x, y, 4, 0, Math.PI * 2); context.fill();
     }
+    function bytesFromRos(value) {
+      if (Array.isArray(value)) return new Uint8Array(value);
+      if (typeof value === "string") {
+        const binary = atob(value);
+        const bytes = new Uint8Array(binary.length);
+        for (let index = 0; index < binary.length; index += 1) bytes[index] = binary.charCodeAt(index);
+        return bytes;
+      }
+      return new Uint8Array();
+    }
+    function decodeCloud(message) {
+      const xField = message.fields?.find((field) => field.name === "x");
+      const yField = message.fields?.find((field) => field.name === "y");
+      const zField = message.fields?.find((field) => field.name === "z");
+      if (!xField || !yField || !zField || xField.datatype !== 7 || yField.datatype !== 7 || zField.datatype !== 7) return [];
+      const bytes = bytesFromRos(message.data), view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+      const count = Math.min(Number(message.width) * Number(message.height), 12000), step = Number(message.point_step);
+      const skip = Math.max(1, Math.ceil(count / 8000)), points = [];
+      for (let index = 0; index < count; index += skip) {
+        const offset = index * step;
+        if (offset + Math.max(xField.offset, yField.offset, zField.offset) + 4 > view.byteLength) break;
+        const x = view.getFloat32(offset + xField.offset, !message.is_bigendian), y = view.getFloat32(offset + yField.offset, !message.is_bigendian), z = view.getFloat32(offset + zField.offset, !message.is_bigendian);
+        if (Number.isFinite(x) && Number.isFinite(y) && Number.isFinite(z)) points.push({ x, y, z });
+      }
+      return points;
+    }
+    function drawCloud() {
+      const canvas = $("pointcloud"), context = canvas.getContext("2d"), rect = canvas.getBoundingClientRect(), ratio = window.devicePixelRatio || 1;
+      if (rect.width && rect.height && (canvas.width !== rect.width * ratio || canvas.height !== rect.height * ratio)) { canvas.width = rect.width * ratio; canvas.height = rect.height * ratio; }
+      context.clearRect(0, 0, canvas.width, canvas.height); context.fillStyle = "#081013"; context.fillRect(0, 0, canvas.width, canvas.height);
+      if (!state.cloud.length) { $("cloud-status").textContent = "WAITING FOR POINT CLOUD"; return; }
+      $("cloud-status").textContent = `${state.cloud.length} POINTS / LIVE`; const cosYaw = Math.cos(cloudView.yaw), sinYaw = Math.sin(cloudView.yaw), cosPitch = Math.cos(cloudView.pitch), sinPitch = Math.sin(cloudView.pitch);
+      const projected = state.cloud.map((point) => { const x = point.x * cosYaw - point.z * sinYaw, depth = point.x * sinYaw + point.z * cosYaw, y = point.y * cosPitch - depth * sinPitch, z = point.y * sinPitch + depth * cosPitch; return { x, y, z, distance: Math.hypot(point.x, point.y, point.z) }; });
+      const minX = Math.min(...projected.map((point) => point.x)), maxX = Math.max(...projected.map((point) => point.x)), minY = Math.min(...projected.map((point) => point.y)), maxY = Math.max(...projected.map((point) => point.y));
+      const scale = Math.min(canvas.width / Math.max(maxX - minX, .5), canvas.height / Math.max(maxY - minY, .5)) * .82, centerX = (minX + maxX) / 2, centerY = (minY + maxY) / 2;
+      projected.sort((first, second) => second.z - first.z); context.globalAlpha = .8;
+      projected.forEach((point) => { const x = canvas.width / 2 + (point.x - centerX) * scale, y = canvas.height / 2 - (point.y - centerY) * scale, size = Math.max(1.5, Math.min(5, scale / 90)); const hue = Math.max(35, 185 - point.distance * 30); context.fillStyle = `hsl(${hue} 78% 62%)`; context.fillRect(x, y, size, size); });
+      context.globalAlpha = 1;
+    }
     function handle(topic, message) {
       stamp(topic);
       if (topic === "/odom") {
@@ -194,26 +268,47 @@
         setText("cmd-vel", `x ${number(message.linear.x)} / z ${number(message.angular.z)}`);
       } else if (topic === "/rover/telemetry") {
         try { const payload = JSON.parse(message.data); const voltage = Number(payload.voltage_v); if (Number.isFinite(voltage)) { setText("battery", `${number(voltage)} `); $("battery").innerHTML += "<small>V</small>"; } } catch (_) { /* raw telemetry remains visible as a signal */ }
-      }
+      } else if (topic === "/gcs/pointcloud") { state.cloud = decodeCloud(message); drawCloud(); }
     }
     function subscribe(socket, topic, type, throttleRate) {
       socket.send(JSON.stringify({ op: "subscribe", topic, type, throttle_rate: throttleRate, queue_length: 1 }));
     }
+    function publishTwist(vx, wz) {
+      if (!rosSocket || rosSocket.readyState !== WebSocket.OPEN) return;
+      rosSocket.send(JSON.stringify({ op: "publish", topic: "/cmd_vel", type: "geometry_msgs/msg/Twist", msg: { linear: { x: vx, y: 0, z: 0 }, angular: { x: 0, y: 0, z: wz } } }));
+    }
+    function stopDrive() { if (drive.timer) { window.clearInterval(drive.timer); drive.timer = null; } if (drive.button) drive.button.classList.remove("active"); drive.button = null; publishTwist(0, 0); }
+    function startDrive(button) { if (!drive.armed) return; stopDrive(); if (button.dataset.stop) return; const vx = Number(button.dataset.vx), wz = Number(button.dataset.wz); drive.button = button; button.classList.add("active"); publishTwist(vx, wz); drive.timer = window.setInterval(() => publishTwist(vx, wz), 100); }
+    function setDriveArmed(armed) { drive.armed = armed; $("drive-arm").classList.toggle("armed", armed); $("drive-arm").setAttribute("aria-pressed", String(armed)); $("drive-arm").textContent = armed ? "DISARM DRIVE" : "ARM DRIVE"; $("drive-state").textContent = armed ? "ARMED" : "DISARMED"; $("drive-state").classList.toggle("armed", armed); if (!armed) stopDrive(); }
     function connect() {
       const socket = new WebSocket(rosbridgeUrl);
+      rosSocket = socket;
       socket.onopen = () => {
         $("connection-dot").classList.add("live"); $("connection-text").textContent = "ROS LINK LIVE";
         subscribe(socket, "/odom", "nav_msgs/msg/Odometry", 200);
         subscribe(socket, "/battery_state", "sensor_msgs/msg/BatteryState", 1000);
         subscribe(socket, "/cmd_vel", "geometry_msgs/msg/Twist", 200);
         subscribe(socket, "/rover/telemetry", "std_msgs/msg/String", 1000);
+        subscribe(socket, "/gcs/pointcloud", "sensor_msgs/msg/PointCloud2", 250);
       };
       socket.onmessage = (event) => { const message = JSON.parse(event.data); if (message.op === "publish") handle(message.topic, message.msg); };
-      socket.onclose = () => { $("connection-dot").classList.remove("live"); $("connection-text").textContent = "ROS DISCONNECTED"; window.setTimeout(connect, 2000); };
+      socket.onclose = () => { stopDrive(); setDriveArmed(false); $("connection-dot").classList.remove("live"); $("connection-text").textContent = "ROS DISCONNECTED"; window.setTimeout(connect, 2000); };
       socket.onerror = () => socket.close();
     }
     window.setInterval(() => { const now = performance.now(); const age = state.last["/rover/telemetry"]; setText("telemetry-age", age ? `${number((now - age) / 1000, 1)} ` : "-- "); if (age) $("telemetry-age").innerHTML += "<small>s</small>"; }, 500);
-    connect(); updateTrajectory();
+    $("drive-arm").addEventListener("click", () => setDriveArmed(!drive.armed));
+    $("drive-stop").addEventListener("click", () => { stopDrive(); setDriveArmed(false); });
+    document.querySelectorAll(".drive-controls button").forEach((button) => {
+      ["pointerdown"].forEach((eventName) => button.addEventListener(eventName, (event) => { event.preventDefault(); button.setPointerCapture?.(event.pointerId); startDrive(button); }));
+      ["pointerup", "pointercancel"].forEach((eventName) => button.addEventListener(eventName, stopDrive));
+    });
+    window.addEventListener("blur", stopDrive); document.addEventListener("visibilitychange", () => { if (document.hidden) stopDrive(); });
+    const cloudCanvas = $("pointcloud");
+    cloudCanvas.addEventListener("pointerdown", (event) => { cloudView.dragging = true; cloudView.x = event.clientX; cloudView.y = event.clientY; cloudCanvas.setPointerCapture(event.pointerId); });
+    cloudCanvas.addEventListener("pointermove", (event) => { if (!cloudView.dragging) return; cloudView.yaw += (event.clientX - cloudView.x) * .008; cloudView.pitch = Math.max(-1.2, Math.min(1.2, cloudView.pitch + (event.clientY - cloudView.y) * .008)); cloudView.x = event.clientX; cloudView.y = event.clientY; drawCloud(); });
+    ["pointerup", "pointercancel"].forEach((eventName) => cloudCanvas.addEventListener(eventName, () => { cloudView.dragging = false; }));
+    window.addEventListener("resize", drawCloud);
+    connect(); updateTrajectory(); drawCloud();
   </script>
 </body>
 </html>

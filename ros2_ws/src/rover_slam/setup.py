@@ -38,6 +38,7 @@ setup(
     entry_points={
         "console_scripts": [
             "gcs_depth_preview = rover_slam.depth_preview:main",
+            "gcs_pointcloud_preview = rover_slam.pointcloud_preview:main",
         ],
     },
 )

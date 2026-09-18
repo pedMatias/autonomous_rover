@@ -53,11 +53,11 @@ def generate_launch_description():
             "approx_sync_max_interval": approx_sync_max_interval,
             "topic_queue_size": topic_queue_size,
             "sync_queue_size": sync_queue_size,
-            "visual_odometry": "false",
-            "icp_odometry": "false",
+            "visual_odometry": LaunchConfiguration("visual_odometry"),
+            "icp_odometry": LaunchConfiguration("icp_odometry"),
             "publish_tf_map": "true",
             "database_path": database_path,
-            "args": "--Reg/Force3DoF true",
+            "args": LaunchConfiguration("rtabmap_args"),
         }.items(),
     )
 
@@ -88,6 +88,19 @@ def generate_launch_description():
         DeclareLaunchArgument("approx_sync_max_interval", default_value="0.20"),
         DeclareLaunchArgument("topic_queue_size", default_value="30"),
         DeclareLaunchArgument("sync_queue_size", default_value="30"),
+        DeclareLaunchArgument("visual_odometry", default_value="false"),
+        DeclareLaunchArgument("icp_odometry", default_value="false"),
+        DeclareLaunchArgument(
+            "rtabmap_args",
+            default_value=(
+                "--Reg/Force3DoF true "
+                "--RGBD/NeighborLinkRefining true "
+                "--Reg/Strategy 0 "
+                "--Optimizer/Strategy 2 "
+                "--RGBD/ProximityBySpace true "
+                "--RGBD/ProximityByTime false"
+            ),
+        ),
         DeclareLaunchArgument("database_path", default_value=""),
         DeclareLaunchArgument("localization", default_value="false"),
         DeclareLaunchArgument("rtabmap_viz", default_value="true"),
