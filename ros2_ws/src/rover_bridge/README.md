@@ -77,6 +77,11 @@ command arrives within `cmd_vel_timeout_s` (0.5 seconds), the bridge sends a
 zero command. It also sends a zero command when its command socket is being
 closed.
 
+Commands below roughly 0.05 m/s per wheel do not produce slow motion on this
+rover: the motors stall against floor friction, draw locked-rotor current and
+can brown the rover out. Keep requested speeds above that band -- minimum
+forward speed is 0.35 m/s. See `docs/rover_low_speed_stall.md`.
+
 ### Publications
 
 | Topic | Type | Notes |
@@ -93,6 +98,57 @@ The compressed image topic names are currently fixed in `node.py`; the
 telemetry, battery, camera-info, and odometry topic names are parameters.
 Compressed image publishers use reliable QoS. CameraInfo uses the ROS sensor
 data QoS profile.
+
+
+## Keyboard teleop (`rover_teleop`)
+
+A terminal-based `w`/`a`/`s`/`d` teleop that publishes `/cmd_vel`. It resolves
+keys into **same-sign wheel speeds** (diagonal arcs) and never produces an
+in-place skid turn.
+
+```bash
+ros2 run rover_bridge rover_teleop
+```
+
+| Keys | Result |
+| --- | --- |
+| `w` | forward straight |
+| `s` | reverse straight |
+| `a` | gentle forward-left diagonal arc |
+| `d` | gentle forward-right diagonal arc |
+| `w`+`a` | tighter forward-left arc |
+| `w`+`d` | tighter forward-right arc |
+| `s`+`a` | reverse-left arc |
+| `s`+`d` | reverse-right arc |
+| `space` / `x` | immediate stop |
+| `q` | quit (also sends a zero Twist) |
+
+Parameters (CLI or ROS):
+
+```
+--drive-speed 0.39      # full-wheel speed for w/s (m/s)
+--turn-speed 0.20       # forward creep used when a/d is held alone (m/s)
+--turn-ratio 0.153846   # inner/outer wheel ratio (0–1); higher = wider arc
+--key-window 0.7        # hold window for detecting simultaneous keys (s)
+--rate 20               # publish rate (Hz)
+```
+
+Dry run (no ROS, prints the motion table):
+
+```bash
+ros2 run rover_bridge rover_teleop --dry-run
+```
+
+### Why no in-place spins?
+
+The Pi's `twist_to_wheels` conversion turns `vx=0, wz≠0` into opposite-sign
+wheel speeds (left negative, right positive or vice versa). That mode caused
+issues in the past. This node instead resolves every command into a **same-sign
+wheel pair** first, then inverts back to a Twist. Holding `a`/`d` without `w`
+or `s` creeps forward at `--turn-speed` instead of spinning in place, so an
+in-place turn is unreachable by construction. A final guard also refuses to
+publish any pair that comes out opposite-sign.
+
 
 ## Pi protocols
 

@@ -1,0 +1,1 @@
+"""Small experimental rover goal-and-avoidance controller."""

@@ -86,11 +86,13 @@ Launch arguments:
 | `camera_info_topic` | `/oak/rgb/camera_info` | CameraInfo topic passed to the bridge. |
 | `base_frame` | `base_link` | Parent of the static camera transform. |
 | `camera_frame` | `oak_rgb_camera_optical_frame` | Child and image frame. |
-| `camera_x`, `camera_y`, `camera_z` | `0.0` | Camera translation in metres. |
+| `camera_x`, `camera_y`, `camera_z` | `0.0`, `0.0`, `0.12` | Camera translation in metres (`0.12` measured above `base_link`). |
 | `camera_roll`, `camera_pitch`, `camera_yaw` | `-1.5707963`, `0.0`, `-1.5707963` | Camera rotation in radians. |
 
-The zero translation is provisional. Measure the physical camera offset before
-using the transform for navigation. The default rotation is the tested
+`camera_z` is `0.12`: the OAK-D sits 17 cm above the floor and `base_link` is
+5 cm above the floor on this rover. `camera_x` and `camera_y` stay `0.0` until
+that offset is measured. Keep the live and offline defaults identical, because
+the replay applies its own static TF. The default rotation is the tested
 forward-facing optical-frame rotation used by this project.
 
 Live outputs come from `rover_bridge`: compressed RGB on
@@ -252,7 +254,7 @@ Important mapping behavior:
 | Argument | Default | Purpose |
 | --- | --- | --- |
 | `base_frame` / `camera_frame` | `base_link` / `oak_rgb_camera_optical_frame` | Static TF frames and RTAB-Map base frame. |
-| `camera_x`, `camera_y`, `camera_z` | `0.0` | Camera translation in metres. |
+| `camera_x`, `camera_y`, `camera_z` | `0.0`, `0.0`, `0.12` | Camera translation in metres; must match the live bringup value. |
 | `camera_roll`, `camera_pitch`, `camera_yaw` | `-1.5707963`, `0.0`, `-1.5707963` | Camera rotation in radians. |
 | `map_frame_id` | `map` | RTAB-Map map frame. |
 | `rgb_topic` / `depth_topic` | `/oak/rgb/image_raw` / `/oak/stereo/image_raw` | Input image base topics. |

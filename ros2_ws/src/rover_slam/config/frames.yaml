@@ -1,5 +1,5 @@
 base_frame: base_link
 camera_frame: oak_rgb_camera_optical_frame
 camera_to_base:
-  translation_m: [0.0, 0.0, 0.0]
+  translation_m: [0.0, 0.0, 0.12]
   rpy_rad: [0.0, 0.0, 0.0]

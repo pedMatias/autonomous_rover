@@ -198,6 +198,10 @@ class RoverBridge(Node):
         self._queue_drops = 0
         self._last_sequence = None
         self._last_telemetry_sequence = None
+        self._last_telemetry_ts = None
+        self._last_camera_stamp = None
+        self._stale_telemetry_drops = 0
+        self._stale_camera_drops = 0
         self._last_stats_time = time.monotonic()
         self._last_stats_rx = 0
         self._last_stats_pub = 0
@@ -365,6 +369,22 @@ class RoverBridge(Node):
             self.get_logger().warning("Ignoring unexpected rover telemetry payload")
             return
 
+        timestamp = payload.get("ts")
+        if isinstance(timestamp, (int, float)) and math.isfinite(timestamp):
+            if (
+                self._last_telemetry_ts is not None
+                and timestamp <= self._last_telemetry_ts
+            ):
+                self._stale_telemetry_drops += 1
+                if self._stale_telemetry_drops == 1 or self._stale_telemetry_drops % 100 == 0:
+                    self.get_logger().warning(
+                        "Discarding stale rover telemetry (ts="
+                        f"{timestamp:.3f} <= {self._last_telemetry_ts:.3f}, "
+                        f"drops={self._stale_telemetry_drops})"
+                    )
+                return
+            self._last_telemetry_ts = timestamp
+
         raw = String()
         raw.data = json.dumps(payload, separators=(",", ":"))
         self._telemetry_pub.publish(raw)
@@ -467,7 +487,18 @@ class RoverBridge(Node):
                 )
                 while not self._stop_event.is_set():
                     packet = read_rgbd_packet(client)
-                    self._record_received(packet[0])
+                    header = packet[0]
+                    stamp = header.get("stamp", header.get("ts"))
+                    if isinstance(stamp, (int, float)) and math.isfinite(stamp):
+                        if (
+                            self._last_camera_stamp is not None
+                            and stamp <= self._last_camera_stamp
+                        ):
+                            with self._stats_lock:
+                                self._stale_camera_drops += 1
+                            continue
+                        self._last_camera_stamp = stamp
+                    self._record_received(header)
                     with self._camera_packet_condition:
                         if self._camera_packet is not None:
                             with self._stats_lock:
@@ -533,13 +564,15 @@ class RoverBridge(Node):
             pub_fps = (self._pub_count - self._last_stats_pub) / elapsed
             dropped_frames = self._dropped_frames
             queue_drops = self._queue_drops
+            stale_camera_drops = self._stale_camera_drops
             self._last_stats_time = now
             self._last_stats_rx = self._rx_count
             self._last_stats_pub = self._pub_count
         self.get_logger().info(
             "Camera stats: "
             f"rx_fps={rx_fps:.2f}, pub_fps={pub_fps:.2f}, "
-            f"dropped_frames={dropped_frames}, queue_drops={queue_drops}"
+            f"dropped_frames={dropped_frames}, queue_drops={queue_drops}, "
+            f"stale_drops={stale_camera_drops}"
         )
 
     def _camera_info_message(self, info, stamp):

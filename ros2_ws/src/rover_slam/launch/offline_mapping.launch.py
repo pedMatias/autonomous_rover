@@ -68,7 +68,7 @@ def generate_launch_description():
         ),
         DeclareLaunchArgument("camera_x", default_value="0.0"),
         DeclareLaunchArgument("camera_y", default_value="0.0"),
-        DeclareLaunchArgument("camera_z", default_value="0.0"),
+        DeclareLaunchArgument("camera_z", default_value="0.12"),
         DeclareLaunchArgument("camera_roll", default_value="-1.5707963"),
         DeclareLaunchArgument("camera_pitch", default_value="0.0"),
         DeclareLaunchArgument("camera_yaw", default_value="-1.5707963"),

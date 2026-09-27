@@ -1,0 +1,360 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Rover Street View</title>
+<style>
+  html, body { margin:0; height:100%; overflow:hidden; background:#0b0d10;
+    font-family:ui-monospace,Menlo,Consolas,monospace; color:#dfe6ee; }
+  #app { position:fixed; inset:0; }
+  #photo { position:absolute; inset:0; width:100%; height:100%; object-fit:cover;
+    opacity:0; transition:opacity .35s ease; pointer-events:none; z-index:1; }
+  canvas#view { position:absolute; inset:0; z-index:2; display:block; }
+  #hud { position:absolute; left:14px; top:12px; z-index:5; font-size:13px;
+    background:rgba(10,12,16,.62); padding:8px 12px; border-radius:8px;
+    line-height:1.5; backdrop-filter:blur(4px); }
+  #hud b { color:#7fd1ff; }
+  #bar { position:absolute; left:50%; bottom:18px; transform:translateX(-50%);
+    z-index:5; display:flex; gap:8px; align-items:center;
+    background:rgba(10,12,16,.72); padding:8px 10px; border-radius:10px;
+    backdrop-filter:blur(6px); }
+  #bar button { font:inherit; font-size:13px; color:#dfe6ee; background:#1b2430;
+    border:1px solid #33465c; border-radius:6px; padding:7px 13px; cursor:pointer; }
+  #bar button:hover { background:#27405c; }
+  #bar button.on { background:#2b6cb0; border-color:#4aa3ff; }
+  #bar .nav { font-size:17px; padding:5px 14px; }
+  #count { font-size:13px; padding:0 8px; min-width:74px; text-align:center; }
+  #minimap { position:absolute; right:14px; top:12px; z-index:5; border-radius:8px;
+    background:rgba(10,12,16,.62); cursor:crosshair; }
+  #hint { position:absolute; left:14px; bottom:16px; z-index:5; font-size:12px;
+    color:#93a4b8; background:rgba(10,12,16,.5); padding:6px 10px; border-radius:6px; }
+  #err { position:absolute; left:50%; top:40%; transform:translateX(-50%); z-index:9;
+    display:none; background:#3a1420; color:#ffb3c0; padding:14px 18px;
+    border-radius:8px; max-width:70%; font-size:14px; }
+</style>
+</head>
+<body>
+<div id="app">
+  <img id="photo" alt="">
+  <canvas id="view"></canvas>
+  <div id="hud"><b>Rover Street View</b><div id="hudSub">loading…</div></div>
+  <canvas id="minimap" width="190" height="190"></canvas>
+  <div id="bar">
+    <button class="nav" id="prev" title="previous (←)">◀</button>
+    <span id="count">–</span>
+    <button class="nav" id="next" title="next (→)">▶</button>
+    <button id="tour" title="auto tour (space)">auto tour</button>
+    <button id="photoBtn" title="toggle photo overlay (p)">photo</button>
+  </div>
+  <div id="hint">drag: look around · wheel / ←→: move along path · space: auto tour · p: photo · minimap: jump</div>
+  <div id="err"></div>
+</div>
+<script src="three.min.js"></script>
+<script>
+"use strict";
+(function () {
+  const $ = (id) => document.getElementById(id);
+  const errBox = $("err");
+  function fatal(msg) {
+    errBox.style.display = "block";
+    errBox.textContent = msg;
+    $("hudSub").textContent = "error";
+  }
+  if (!window.THREE) fatal("three.min.js failed to load — make sure it sits next to index.html");
+
+  // ---- ROS map / optical frame -> three.js --------------------------------
+  // three world = rotate ROS map by C = Rx(-90):  (x,y,z) -> (x, z, -y)
+  const Q_C = new THREE.Quaternion(-Math.SQRT1_2, 0, 0, Math.SQRT1_2);
+  // optical -> three camera convention (look -z, up +y): diag(1,-1,-1) = Rx(180)
+  const Q_D = new THREE.Quaternion(1, 0, 0, 0);
+  const toThree = (t) => new THREE.Vector3(t[0], t[2], -t[1]);
+
+  // ---- renderer / scene ---------------------------------------------------
+  const canvas = $("view");
+  const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true });
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+  const scene = new THREE.Scene();
+  const camera = new THREE.PerspectiveCamera(55, 1, 0.05, 60);
+  camera.rotation.order = "YXZ";
+  const anchor = new THREE.Object3D();
+  anchor.add(camera);
+  scene.add(anchor);
+
+  function resize() {
+    const w = window.innerWidth, h = window.innerHeight;
+    renderer.setSize(w, h, false);
+    camera.aspect = w / h;
+    camera.updateProjectionMatrix();
+    drawMinimap();
+  }
+  window.addEventListener("resize", resize);
+
+  // ---- state --------------------------------------------------------------
+  let manifest = null, idx = 0;
+  let yaw = 0, pitch = 0;          // user look offset (camera-local)
+  let photoFresh = false;          // photo aligned (no drag since view load)
+  let photoForced = false;         // user pinned photo on with P
+  let touring = false, tourTimer = 0;
+  let curCloud = null;             // THREE.Points currently shown
+  let fadeT0 = 0;                  // crossfade start time
+  let reqId = 0;                   // guards stale async view loads
+  let dragged = false;             // user dragged since current view started
+  const cache = new Map();         // view id -> THREE.Points (LRU by insertion)
+  const CACHE_MAX = 12;
+  const FADE_MS = 350;
+
+  function v() { return manifest.views[idx]; }
+
+  // ---- cloud loading ------------------------------------------------------
+  async function makePoints(view) {
+    if (cache.has(view.id)) {
+      const hit = cache.get(view.id);
+      cache.delete(view.id); cache.set(view.id, hit); // refresh LRU
+      return hit;
+    }
+    const buf = await (await fetch(view.cloud)).arrayBuffer();
+    const dv = new DataView(buf);
+    const n = dv.getUint32(8, true);
+    const pos = new Float32Array(buf, 12, n * 3);
+    const col = new Uint8Array(buf, 12 + n * 12, n * 3);
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute("position", new THREE.BufferAttribute(pos, 3));
+    geo.setAttribute("color", new THREE.BufferAttribute(col, 3, true));
+    const mat = new THREE.PointsMaterial({
+      size: 2 * renderer.getPixelRatio(),
+      sizeAttenuation: false,
+      vertexColors: true,
+      transparent: true,
+      opacity: 0,
+      depthWrite: true,
+    });
+    const pts = new THREE.Points(geo, mat);
+    const q = new THREE.Quaternion(...view.q);
+    pts.position.copy(toThree(view.t));
+    pts.quaternion.copy(Q_C).multiply(q);
+    cache.set(view.id, pts);
+    while (cache.size > CACHE_MAX) {
+      const oldest = cache.keys().next().value;
+      if (oldest === view.id) break;
+      const dead = cache.get(oldest);
+      if (dead.parent) break; // still on screen (fading) — stop, don't evict in-scene clouds
+      scene.remove(dead);
+      dead.geometry.dispose();
+      dead.material.dispose();
+      cache.delete(oldest);
+    }
+    return pts;
+  }
+
+  async function showView(i, keepLook) {
+    const req = ++reqId;
+    idx = Math.max(0, Math.min(manifest.views.length - 1, i));
+    const view = v();
+    dragged = false;
+    if (!keepLook) { yaw = 0; pitch = 0; }
+    camera.rotation.set(pitch, yaw, 0);
+
+    // pose the anchor
+    const q = new THREE.Quaternion(...view.q);
+    anchor.position.copy(toThree(view.t));
+    anchor.quaternion.copy(Q_C).multiply(q).multiply(Q_D);
+    camera.fov = 2 * Math.atan(view.h / (2 * view.fy)) * 180 / Math.PI;
+    camera.updateProjectionMatrix();
+
+    // photo layer (fast, shows while cloud loads / fills missing depth)
+    photoFresh = false;
+    const img = $("photo");
+    img.src = view.rgb;
+
+    let pts;
+    try {
+      pts = await makePoints(view);
+    } catch (e) {
+      console.error(e);
+      fatal("failed to load " + view.cloud + " — is the HTTP server running from maps/vo3_street?");
+      return;
+    }
+    if (req !== reqId) return; // a newer view was requested meanwhile
+    // swap in with crossfade
+    const old = curCloud;
+    pts.userData.fading = false;
+    pts.material.opacity = 0;
+    scene.add(pts);
+    curCloud = pts;
+    fadeT0 = performance.now();
+    if (old && old !== pts) old.userData.fading = true;
+    photoFresh = !dragged;
+
+    // HUD
+    $("count").textContent = (idx + 1) + " / " + manifest.views.length;
+    const t = view.stamp - manifest.views[0].stamp;
+    $("hudSub").textContent =
+      "view " + view.id + " · t+" + t.toFixed(1) + "s · fov " +
+      camera.fov.toFixed(0) + "° · " +
+      manifest.views.reduce((a, b, j) => a + (j > 0 ? Math.hypot(
+        manifest.views[j].t[0] - manifest.views[j - 1].t[0],
+        manifest.views[j].t[1] - manifest.views[j - 1].t[1]) : 0), 0).toFixed(1) + " m path";
+    drawMinimap();
+    prefetchNeighbors();
+  }
+
+  function prefetchNeighbors() {
+    [idx + 1, idx - 1, idx + 2].forEach((j) => {
+      if (j >= 0 && j < manifest.views.length && !cache.has(manifest.views[j].id)) {
+        makePoints(manifest.views[j]).catch(() => {});
+      }
+    });
+  }
+
+  // ---- navigation ---------------------------------------------------------
+  function step(d) {
+    showView(idx + d, true);
+    photoFresh = false;
+    tourTimer = performance.now();
+  }
+  $("next").onclick = () => step(1);
+  $("prev").onclick = () => step(-1);
+
+  let wheelLock = 0;
+  window.addEventListener("wheel", (e) => {
+    const now = performance.now();
+    if (now < wheelLock) return;
+    if (Math.abs(e.deltaY) < 8) return;
+    wheelLock = now + 420;
+    step(e.deltaY > 0 ? 1 : -1);
+  }, { passive: true });
+
+  window.addEventListener("keydown", (e) => {
+    if (e.key === "ArrowRight" || e.key === "d") step(1);
+    else if (e.key === "ArrowLeft" || e.key === "a") step(-1);
+    else if (e.key === " ") { e.preventDefault(); toggleTour(); }
+    else if (e.key === "p") togglePhoto();
+    else if (e.key === "r") { yaw = 0; pitch = 0; camera.rotation.set(0, 0, 0); }
+  });
+
+  function toggleTour() {
+    touring = !touring;
+    $("tour").classList.toggle("on", touring);
+    tourTimer = performance.now();
+  }
+  $("tour").onclick = toggleTour;
+
+  function togglePhoto() {
+    photoForced = !photoForced;
+    $("photoBtn").classList.toggle("on", photoForced);
+  }
+  $("photoBtn").onclick = togglePhoto;
+
+  // ---- drag to look -------------------------------------------------------
+  let dragging = false, lastX = 0, lastY = 0;
+  canvas.addEventListener("pointerdown", (e) => {
+    dragging = true; lastX = e.clientX; lastY = e.clientY;
+    canvas.setPointerCapture(e.pointerId);
+    photoFresh = false;
+    dragged = true;
+  });
+  canvas.addEventListener("pointermove", (e) => {
+    if (!dragging) return;
+    yaw -= (e.clientX - lastX) * 0.0032;
+    pitch -= (e.clientY - lastY) * 0.0032;
+    pitch = Math.max(-1.35, Math.min(1.35, pitch));
+    lastX = e.clientX; lastY = e.clientY;
+    camera.rotation.set(pitch, yaw, 0);
+  });
+  canvas.addEventListener("pointerup", () => { dragging = false; });
+
+  // ---- minimap ------------------------------------------------------------
+  const mm = $("minimap"), mctx = mm.getContext("2d");
+  let mmScale = 1, mmOx = 0, mmOy = 0;
+  function drawMinimap() {
+    if (!manifest) return;
+    const W = mm.width, H = mm.height, pad = 16;
+    const xs = manifest.path.map((p) => p[0]), ys = manifest.path.map((p) => p[1]);
+    const minX = Math.min(...xs), maxX = Math.max(...xs);
+    const minY = Math.min(...ys), maxY = Math.max(...ys);
+    const s = Math.min((W - 2 * pad) / Math.max(1e-3, maxX - minX),
+                       (H - 2 * pad) / Math.max(1e-3, maxY - minY));
+    mmScale = s;
+    mmOx = pad - minX * s;
+    mmOy = H - pad + minY * s; // flip y for screen
+    const px = (x) => x * s + mmOx, py = (y) => mmOy - y * s;
+    mctx.clearRect(0, 0, W, H);
+    mctx.strokeStyle = "#3d5a80"; mctx.lineWidth = 2;
+    mctx.beginPath();
+    manifest.path.forEach((p, i) => i ? mctx.lineTo(px(p[0]), py(p[1]))
+                                      : mctx.moveTo(px(p[0]), py(p[1])));
+    mctx.stroke();
+    manifest.views.forEach((vv, j) => {
+      mctx.fillStyle = j === idx ? "#7fd1ff" : "#5b7290";
+      mctx.beginPath();
+      mctx.arc(px(vv.t[0]), py(vv.t[1]), j === idx ? 5 : 2.5, 0, Math.PI * 2);
+      mctx.fill();
+    });
+  }
+  mm.addEventListener("click", (e) => {
+    const r = mm.getBoundingClientRect();
+    const mx = (e.clientX - r.left) * (mm.width / r.width);
+    const my = (e.clientY - r.top) * (mm.height / r.height);
+    let best = 0, bestD = Infinity;
+    manifest.views.forEach((vv, j) => {
+      const dx = (vv.t[0] * mmScale + mmOx) - mx;
+      const dy = (mmOy - vv.t[1] * mmScale) - my;
+      const d = dx * dx + dy * dy;
+      if (d < bestD) { bestD = d; best = j; }
+    });
+    showView(best, false);
+  });
+
+  // ---- main loop ----------------------------------------------------------
+  function frame(now) {
+    requestAnimationFrame(frame);
+    if (!manifest || !curCloud) { renderer.render(scene, camera); return; }
+
+    // auto tour
+    if (touring && now - tourTimer > 3200) {
+      tourTimer = now;
+      if (idx + 1 < manifest.views.length) showView(idx + 1, true);
+      else { touring = false; $("tour").classList.remove("on"); }
+    }
+
+    // crossfade clouds
+    let needMore = false;
+    scene.traverse((o) => {
+      if (!o.isPoints) return;
+      if (o.userData.fading) {
+        const k = 1 - Math.min(1, (now - fadeT0) / FADE_MS);
+        o.material.opacity = k;
+        if (k <= 0) {
+          scene.remove(o);
+          o.userData.fading = false;
+        } else needMore = true;
+      } else if (o === curCloud) {
+        const k = Math.min(1, (now - fadeT0) / FADE_MS);
+        o.material.opacity = k;
+        if (k < 1) needMore = true;
+      }
+    });
+
+    // photo layer: crisp street-view photo when idle & aligned, else 3D points
+    const showPhoto = photoForced || (photoFresh && !dragging && !needMore);
+    $("photo").style.opacity = showPhoto ? "1" : "0";
+
+    renderer.render(scene, camera);
+  }
+
+  // ---- boot ---------------------------------------------------------------
+  fetch("views.json")
+    .then((r) => r.json())
+    .then((m) => {
+      if (!m.views || !m.views.length) throw new Error("no views in manifest");
+      manifest = m;
+      resize();
+      showView(0, false);
+      requestAnimationFrame(frame);
+    })
+    .catch((e) => fatal("failed to load views.json: " + e.message));
+})();
+</script>
+</body>
+</html>

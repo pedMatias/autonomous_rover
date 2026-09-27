@@ -49,6 +49,9 @@ class ReadLine:
 		while True:
 			i = max(1, min(512, self.s.in_waiting))
 			data = self.s.read(i)
+			if not data:
+				self.buf.clear()
+				return b""
 			i = data.find(b"\n")
 			if i >= 0:
 				r = self.buf + data[:i+1]
@@ -150,7 +153,10 @@ class BaseController:
 	def feedback_data(self):
 		try:
 			while self.rl.s.in_waiting > 0:
-				self.data_buffer = json.loads(self.rl.readline().decode('utf-8'))
+				line = self.rl.readline()
+				if not line:
+					return None
+				self.data_buffer = json.loads(line.decode('utf-8'))
 				if 'T' in self.data_buffer:
 					self.base_data = self.data_buffer
 					self.data_buffer = None
@@ -158,7 +164,10 @@ class BaseController:
 						print(self.base_data)
 						return self.base_data
 			self.rl.clear_buffer()
-			self.data_buffer = json.loads(self.rl.readline().decode('utf-8'))
+			line = self.rl.readline()
+			if not line:
+				return None
+			self.data_buffer = json.loads(line.decode('utf-8'))
 			self.base_data = self.data_buffer
 			return self.base_data
 		except Exception as e:

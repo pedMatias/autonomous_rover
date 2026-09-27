@@ -29,6 +29,7 @@ setup(
     entry_points={
         "console_scripts": [
             "rover_bridge = rover_bridge.node:main",
+            "rover_teleop = rover_bridge.teleop:main",
         ],
     },
 )
