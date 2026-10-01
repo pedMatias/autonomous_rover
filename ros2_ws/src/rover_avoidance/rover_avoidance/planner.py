@@ -5,9 +5,6 @@ import math
 import cv2
 import numpy as np
 
-from rover_bridge.protocol import depth_png_bytes
-
-
 def quaternion_rotate(vector, quaternion):
     """Rotate a 3D vector by an (x, y, z, w) quaternion."""
     q = np.asarray(quaternion, dtype=np.float64)
@@ -399,6 +396,8 @@ def command_for_heading(
 
 def decode_depth_message(message):
     """Decode compressedDepth PNG to its uint16 depth image."""
+    from rover_bridge.protocol import depth_png_bytes
+
     png = depth_png_bytes(bytes(message.data))
     depth = cv2.imdecode(np.frombuffer(png, dtype=np.uint8), cv2.IMREAD_UNCHANGED)
     if depth is None or depth.ndim != 2 or depth.dtype != np.uint16:

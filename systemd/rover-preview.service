@@ -1,0 +1,22 @@
+[Unit]
+Description=UGV Rover OAK-D no-motion preview dashboard
+After=network-online.target
+Wants=network-online.target
+Conflicts=rover-camera.service
+
+[Service]
+Type=simple
+User=ws
+WorkingDirectory=/home/ws/ugv_rpi
+ExecStart=/home/ws/ugv_rpi/ugv-env/bin/python -m rover_preview --host 0.0.0.0
+Restart=on-failure
+RestartSec=5
+SupplementaryGroups=video
+Environment=PYTHONUNBUFFERED=1
+Environment=PYTHONDONTWRITEBYTECODE=1
+NoNewPrivileges=true
+PrivateTmp=true
+InaccessiblePaths=-/dev/ttyAMA0 -/dev/serial0
+
+[Install]
+WantedBy=multi-user.target

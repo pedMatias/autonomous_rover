@@ -23,11 +23,12 @@ import depthai as dai
 
 
 class OakCamera:
-    def __init__(self, rgb_size=(640, 480), mono_size=(640, 400), fps=10.0, sync_threshold_ms=50):
+    def __init__(self, rgb_size=(640, 480), mono_size=(640, 400), fps=10.0, sync_threshold_ms=50, latest_only=False):
         self.rgb_size = rgb_size
         self.mono_size = mono_size
         self.fps = fps
         self.sync_threshold_ms = sync_threshold_ms
+        self.latest_only = latest_only
 
         self.pipeline = None
         self.sync_queue = None
@@ -58,7 +59,10 @@ class OakCamera:
         rgb_out.link(sync.inputs["rgb"])
         stereo.depth.link(sync.inputs["depth"])
 
-        self.sync_queue = sync.out.createOutputQueue()
+        self.sync_queue = (
+            sync.out.createOutputQueue(maxSize=1, blocking=False)
+            if self.latest_only else sync.out.createOutputQueue()
+        )
 
         # Grab calibration before start() (calibration data is available on the pipeline itself).
         calib = pipeline.getCalibrationData()
@@ -78,24 +82,27 @@ class OakCamera:
 
     def warmup(self, seconds=8.0):
         """Drain frames without returning them so depth density stabilizes before recording starts."""
-        t0 = time.time()
-        while time.time() - t0 < seconds:
+        t0 = time.monotonic()
+        while time.monotonic() - t0 < seconds:
             if self.sync_queue.has():
                 self.sync_queue.get()
+            else:
+                time.sleep(0.005)
 
     def get_camera_info(self):
         return self._camera_info
 
     def read(self, timeout=1.0):
         """Return (host_ts, rgb_bgr, depth_u16) for the next synchronized frame pair, or None on timeout."""
-        t0 = time.time()
-        while time.time() - t0 < timeout:
+        t0 = time.monotonic()
+        while time.monotonic() - t0 < timeout:
             if self.sync_queue.has():
                 group = self.sync_queue.get()
                 host_ts = time.time()
                 rgb_frame = group["rgb"].getCvFrame()
                 depth_frame = group["depth"].getFrame()
                 return host_ts, rgb_frame, depth_frame
+            time.sleep(0.005)
         return None
 
     def stop(self):

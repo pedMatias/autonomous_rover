@@ -1,4 +1,5 @@
 ugv-env/
+.preview-env/
 __pycache__/
 recordings/
 maps/

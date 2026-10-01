@@ -1,0 +1,2 @@
+-r requirements-preview.txt
+depthai==3.8.0

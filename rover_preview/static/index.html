@@ -1,0 +1,92 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Rover | No-motion preview</title>
+  <link rel="stylesheet" href="/static/dashboard.css">
+  <script src="/static/dashboard.js" defer></script>
+</head>
+<body>
+  <header>
+    <h1>Rover preview <span class="badge">NO MOTOR INTERFACE</span></h1>
+    <p>Hypothetical paths only. Keep the rover stationary; stop teleop and other driving software separately.</p>
+  </header>
+  <div id="connection" role="status">Connecting...</div>
+  <div id="mount-warning" class="warning">Camera mount is unverified. Geometry uses the existing ROS launch defaults.</div>
+  <main>
+    <section class="controls">
+      <form id="goal-form">
+        <label>Forward X (m)<input id="goal-x" type="number" min="0.06" max="10" step="0.01" value="3" required></label>
+        <label>Left Y (m)<input id="goal-y" type="number" min="-10" max="10" step="0.01" value="1" required></label>
+        <button type="submit">Preview goal</button>
+        <button type="button" id="cancel">Clear goal</button>
+      </form>
+      <div class="buttons">
+        <button id="freeze" type="button">View last failure</button>
+        <button id="live" type="button">Return to live preview</button>
+        <a id="download" hidden>Download failure for replay</a>
+      </div>
+      <p id="goal-result" role="status">Goals are relative to the stationary rover. Positive Y is left. Maximum range: 10 m.</p>
+    </section>
+    <section class="decision">
+      <h2><span id="state">STARTING</span> <small id="mode">Latest preview</small></h2>
+      <p id="reason">Waiting for camera</p>
+      <div class="metrics">
+        <div>Input <strong id="source">-</strong></div>
+        <div>Frame <strong id="frame">-</strong></div>
+        <div>Captured <strong id="timestamp">-</strong></div>
+        <div>Valid ROI depth <strong id="valid">-</strong></div>
+        <div>Unmeasured / out of range <strong id="unknown">-</strong></div>
+        <div>Sampled / considered points <strong id="counts">-</strong></div>
+        <div>Nearest considered range <strong id="range">-</strong></div>
+        <div>Planner time <strong id="processing">-</strong></div>
+      </div>
+    </section>
+    <section class="camera">
+      <h2>Camera input used by this decision</h2>
+      <img id="camera" alt="Aligned RGB and depth from the displayed decision frame" hidden>
+      <p id="image-status">Waiting for an image</p>
+      <p>Red RGB dots are measured points used for obstacle rejection, not detected objects.
+        Depth colours run from near (blue) to far (red); black is unmeasured or outside configured range.</p>
+    </section>
+    <section class="geometry">
+      <h2>What the planner considered</h2>
+      <canvas id="map" width="900" height="600" aria-label="Top-down depth points and hypothetical paths"></canvas>
+      <p id="point-info">Hover a red point to inspect its range and rover-relative position.</p>
+      <p>Grey: sampled depth. Red: considered obstacles / blocked paths. Green: clear paths.
+        Cyan: selected path. Yellow: hypothetical search prefix. Dashed circle: collision radius, not a measured bumper outline.</p>
+    </section>
+    <section class="paths">
+      <h2>Candidate decisions <small>Speeds below are hypothetical, never transmitted</small></h2>
+      <div class="table-scroll">
+        <table><thead><tr><th>Heading</th><th>Linear / angular</th><th>Decision</th><th>First blocking point (X, Y, Z metres)</th></tr></thead>
+          <tbody id="candidates"></tbody></table>
+      </div>
+      <p id="search">No search prefix</p>
+      <p id="depth-policy">Missing depth is not proof of free space.</p>
+    </section>
+    <section class="health">
+      <h2>Service health</h2>
+      <div class="metrics">
+        <div>Input rate <strong id="fps">-</strong></div>
+        <div>Host-dequeue age <strong id="age">-</strong></div>
+        <div>Process CPU <strong id="cpu">-</strong></div>
+        <div>Process memory <strong id="memory">-</strong></div>
+        <div>CPU temperature <strong id="temperature">-</strong></div>
+        <div>Camera / display workers <strong id="workers">-</strong></div>
+      </div>
+      <p>Dequeue age is not camera-exposure latency. CPU is for this process (100% = one core).
+        Battery and wheel feedback are unavailable: this preview deliberately does not open the UART.</p>
+      <p id="health-error" class="error" role="status"></p>
+    </section>
+    <details><summary>Exact displayed decision JSON</summary><pre id="raw"></pre></details>
+    <details id="recorded" hidden>
+      <summary>Original recorded failure</summary>
+      <p>Replay recomputes geometry. A single recorded frame cannot reproduce camera disconnects or timing faults; their original reason is preserved here.</p>
+      <pre id="recorded-decision"></pre>
+    </details>
+    <details><summary>Effective settings</summary><pre id="config"></pre></details>
+  </main>
+</body>
+</html>

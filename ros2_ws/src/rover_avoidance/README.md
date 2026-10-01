@@ -10,6 +10,12 @@ not obstacles. If no candidate corridor is clear, it stops with `BLOCKED`.
 This is not a global route planner and may stop at fences, corners, or
 obstacles it cannot see around.
 
+The same pure planner can also run directly on the Pi without ROS2 or depth
+compression. See the [camera-only browser preview](../../../docs/rover_preview.md)
+for no-motion goals, frame-consistent debug views, and recorded failure replay.
+Install this Python package through the preview requirements; only the ROS node
+and compressed-message adapter need ROS/bridge dependencies.
+
 For a staged first software and rover test, follow
 [`docs/rover_avoidance_first_test.md`](../../../docs/rover_avoidance_first_test.md).
 

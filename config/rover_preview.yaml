@@ -1,0 +1,15 @@
+# Same optical-to-base transform as live_bringup.launch.py, not a measured mount.
+camera_translation_m: [0.0, 0.0, 0.12]
+camera_rotation_xyzw: [-0.5, 0.5, -0.5, 0.5]
+camera_mount_verified: false
+camera_width: 640
+camera_height: 480
+camera_fps: 10.0
+warmup_s: 8.0
+processing_hz: 10.0
+display_hz: 3.0
+display_width: 480
+jpeg_quality: 70
+max_debug_points: 600
+# Resolve relative to this file. Share the existing planner tuning.
+planner_config: ../ros2_ws/src/rover_avoidance/config/avoidance.yaml

@@ -56,12 +56,20 @@ for both RGB-D assembly and the outer `/odom` plus RGB-D mapper input.
 | `app.py` | Pi | Factory browser control and manual baseline | Web UI `5000`, UART |
 | `rover_agent.py` | Pi | Production motor/telemetry gateway | Commands `8765`, telemetry `8766`, UART |
 | `camera_stream.py` | Pi | OAK-D RGB-D network stream | Camera `8770` |
+| `python -m rover_preview` | Pi | Camera-only local planner preview and debug dashboard; no motor commands | Browser `5001`, OAK-D |
 | `rover_bridge` | WSL2 | ROS2 network adapter | `/cmd_vel` and sensor topics |
 | `recorder/record.py` | Pi | Standalone synchronized bag recorder | UART and OAK-D |
 
 Only one process may own `/dev/ttyAMA0` at a time. Never run `app.py`,
 `rover_agent.py`, `record.py`, or a UART diagnostic/calibration script together.
 The factory app and production agent are mutually exclusive.
+
+For a simpler Pi-local, ROS-free experiment, see the
+[no-motion preview dashboard](docs/rover_preview.md). It uses raw OAK-D depth
+and the existing local planner, shows the inputs and candidate decisions in a
+LAN browser, and supports frozen failure replay. It must replace the camera
+streamer while running, but never opens the motor UART. Stop other driving
+software separately; preview is not autonomous navigation or an emergency stop.
 
 The factory movement convention is the hardware reference:
 

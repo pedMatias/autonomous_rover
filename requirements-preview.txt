@@ -1,0 +1,7 @@
+# Install from the repository root; no ROS2 runtime or factory CV stack.
+-e ./ros2_ws/src/rover_avoidance
+numpy>=1.24,<3
+opencv-python-headless>=4.9,<5
+PyYAML>=6,<7
+Flask>=2.2,<4
+psutil>=5.9,<8

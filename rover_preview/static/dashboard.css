@@ -1,0 +1,37 @@
+:root { color-scheme: dark; font-family: system-ui, sans-serif; background: #101820; color: #dce6ef; }
+* { box-sizing: border-box; }
+body { margin: 0; }
+header, main, #connection, #mount-warning { max-width: 1400px; margin: auto; padding: 14px 20px; }
+header p, section p { color: #aebdcc; line-height: 1.5; }
+h1 { font-size: 1.6rem; }
+h2 { font-size: 1.15rem; margin-top: 0; }
+small { font-size: .8rem; font-weight: normal; color: #aebdcc; }
+.badge { font-size: .7rem; background: #163e46; color: #72ead7; padding: 6px 9px; border-radius: 5px; white-space: nowrap; }
+main { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+section, details { min-width: 0; padding: 18px; background: #1b2733; border: 1px solid #314251; border-radius: 8px; }
+.controls, .decision, .paths, .health, details { grid-column: 1 / -1; }
+form, .buttons { display: flex; gap: 12px; align-items: end; flex-wrap: wrap; }
+.buttons { margin-top: 16px; }
+label { display: grid; gap: 6px; font-size: .9rem; }
+input, button, a { font: inherit; }
+input { width: 130px; padding: 10px; background: #101820; color: #fff; border: 1px solid #51697f; border-radius: 5px; }
+button, .buttons a { padding: 10px 14px; background: #254e60; color: #fff; border: 1px solid #467486; border-radius: 5px; cursor: pointer; }
+button:hover, a:hover { background: #326d80; }
+button:disabled { opacity: .5; cursor: wait; }
+a { color: #73d6ed; }
+[hidden] { display: none !important; }
+.metrics { display: grid; grid-template-columns: repeat(auto-fit, minmax(185px, 1fr)); gap: 14px; }
+.metrics div { color: #9fb4c7; font-size: .85rem; }
+.metrics strong { display: block; color: #e6eff6; font-size: 1rem; margin-top: 6px; overflow-wrap: anywhere; }
+#camera, canvas { display: block; width: 100%; height: auto; background: #0c131a; border-radius: 4px; }
+.table-scroll { overflow-x: auto; }
+table { width: 100%; border-collapse: collapse; font-size: .9rem; }
+th, td { text-align: left; padding: 10px; border-bottom: 1px solid #314251; }
+.clear { color: #77db9d; }
+.blocked, .error { color: #ff8b8b; }
+.chosen { background: #17434c; color: #70e0ed; }
+.warning { color: #ffd67c; }
+#connection { color: #77db9d; }
+#connection.disconnected { color: #ff8b8b; }
+pre { white-space: pre-wrap; overflow-wrap: anywhere; font-size: .8rem; max-height: 500px; overflow-y: auto; }
+@media (max-width: 900px) { main { grid-template-columns: 1fr; } }
