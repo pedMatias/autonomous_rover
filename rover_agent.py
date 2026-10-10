@@ -92,6 +92,8 @@ class RoverAgent:
         self.base = base or BaseController(
             agent_config.get("uart_device", "/dev/ttyAMA0"),
             int(agent_config.get("uart_baud", 115200)),
+            use_lidar=False,
+            extra_sensor=False,
         )
         self.stop_event = threading.Event()
         self.command_lock = threading.Lock()

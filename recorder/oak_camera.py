@@ -18,17 +18,20 @@ Design notes:
     timestamps are read but not used as the authoritative timestamp.
 """
 import time
+from datetime import timedelta
 
 import depthai as dai
 
 
 class OakCamera:
-    def __init__(self, rgb_size=(640, 480), mono_size=(640, 400), fps=10.0, sync_threshold_ms=50, latest_only=False):
+    def __init__(self, rgb_size=(640, 480), mono_size=(640, 400), fps=10.0, sync_threshold_ms=50, latest_only=False, profile=False):
         self.rgb_size = rgb_size
         self.mono_size = mono_size
         self.fps = fps
         self.sync_threshold_ms = sync_threshold_ms
         self.latest_only = latest_only
+        self.profile = profile
+        self.last_metadata = {}
 
         self.pipeline = None
         self.sync_queue = None
@@ -56,6 +59,8 @@ class OakCamera:
         rgb_out = cam_rgb.requestOutput(self.rgb_size, fps=self.fps)
 
         sync = pipeline.create(dai.node.Sync)
+        if self.profile:
+            sync.setSyncThreshold(timedelta(milliseconds=self.sync_threshold_ms))
         rgb_out.link(sync.inputs["rgb"])
         stereo.depth.link(sync.inputs["depth"])
 
@@ -97,10 +102,29 @@ class OakCamera:
         t0 = time.monotonic()
         while time.monotonic() - t0 < timeout:
             if self.sync_queue.has():
+                dequeued_at = time.monotonic() if self.profile else None
                 group = self.sync_queue.get()
                 host_ts = time.time()
+                converted_at = time.monotonic() if self.profile else None
                 rgb_frame = group["rgb"].getCvFrame()
+                rgb_ready_at = time.monotonic() if self.profile else None
                 depth_frame = group["depth"].getFrame()
+                if self.profile:
+                    depth_ready_at = time.monotonic()
+                    rgb_device = group["rgb"].getTimestampDevice().total_seconds()
+                    depth_device = group["depth"].getTimestampDevice().total_seconds()
+                    self.last_metadata = {
+                        "rgb_seq": group["rgb"].getSequenceNum(),
+                        "depth_seq": group["depth"].getSequenceNum(),
+                        "rgb_device_s": rgb_device,
+                        "depth_device_s": depth_device,
+                        "device_clock": "DepthAI device; not host monotonic",
+                        "rgb_depth_skew_ms": (rgb_device - depth_device) * 1000,
+                        "dequeued_at": dequeued_at,
+                        "dequeue_ms": (converted_at - dequeued_at) * 1000,
+                        "rgb_conversion_ms": (rgb_ready_at - converted_at) * 1000,
+                        "depth_conversion_ms": (depth_ready_at - rgb_ready_at) * 1000,
+                    }
                 return host_ts, rgb_frame, depth_frame
             time.sleep(0.005)
         return None

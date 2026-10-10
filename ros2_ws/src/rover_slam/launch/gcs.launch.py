@@ -18,7 +18,14 @@ def generate_launch_description():
         PythonLaunchDescriptionSource(
             PathJoinSubstitution([package_share, "launch", "live_bringup.launch.py"])
         ),
-        launch_arguments={"pi_host": pi_host}.items(),
+        launch_arguments={
+            "pi_host": pi_host,
+            "enable_lidar": LaunchConfiguration("enable_lidar"),
+            **{
+                f"laser_{axis}": LaunchConfiguration(f"laser_{axis}")
+                for axis in ("x", "y", "z", "roll", "pitch", "yaw")
+            },
+        }.items(),
     )
 
     rosbridge = Node(
@@ -78,6 +85,11 @@ def generate_launch_description():
 
     return LaunchDescription([
         DeclareLaunchArgument("pi_host", default_value="192.168.0.12"),
+        DeclareLaunchArgument("enable_lidar", default_value="false"),
+        *[
+            DeclareLaunchArgument(f"laser_{axis}", default_value="")
+            for axis in ("x", "y", "z", "roll", "pitch", "yaw")
+        ],
         DeclareLaunchArgument(
             "depth_topic",
             default_value="/camera/depth/image_raw/compressedDepth",

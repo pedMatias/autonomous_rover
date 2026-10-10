@@ -1,0 +1,2 @@
+[console_scripts]
+rover_avoidance = rover_avoidance.node:main

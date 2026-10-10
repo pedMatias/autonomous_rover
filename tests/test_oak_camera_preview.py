@@ -1,4 +1,5 @@
 import importlib.util
+from datetime import timedelta
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import MagicMock
@@ -88,3 +89,27 @@ def test_camera_warmup_also_yields_when_no_frames_arrive(oak_module, monkeypatch
     monkeypatch.setattr(module.time, "sleep", sleep)
     camera.warmup(seconds=.15)
     assert sleep.call_count == 2
+
+
+def test_profiled_camera_exposes_sequences_clocks_skew_and_stage_times(oak_module):
+    module, pipeline = oak_module
+    camera = module.OakCamera(profile=True, sync_threshold_ms=25)
+    camera.start()
+    pipeline.create.return_value.setSyncThreshold.assert_called_once_with(timedelta(milliseconds=25))
+    camera.sync_queue.has.return_value = True
+    camera.sync_queue.get.return_value = {
+        "rgb": SimpleNamespace(getCvFrame=lambda: np.zeros((2, 3, 3), dtype=np.uint8),
+                               getSequenceNum=lambda: 10,
+                               getTimestampDevice=lambda: timedelta(seconds=4.005)),
+        "depth": SimpleNamespace(getFrame=lambda: np.ones((2, 3), dtype=np.uint16),
+                                 getSequenceNum=lambda: 9,
+                                 getTimestampDevice=lambda: timedelta(seconds=4)),
+    }
+    result = camera.read()
+    assert len(result) == 3
+    metadata = camera.last_metadata
+    assert metadata["rgb_seq"] == 10
+    assert metadata["depth_seq"] == 9
+    assert metadata["rgb_depth_skew_ms"] == pytest.approx(5)
+    assert "not host monotonic" in metadata["device_clock"]
+    assert all(metadata[key] >= 0 for key in ("dequeue_ms", "rgb_conversion_ms", "depth_conversion_ms"))

@@ -14,24 +14,32 @@ with open(thisPath + '/config.yaml', 'r') as yaml_file:
     f = yaml.safe_load(yaml_file)
 
 class ReadLine:
-	def __init__(self, s):
+	def __init__(self, s, use_lidar=None, extra_sensor=None):
 		self.buf = bytearray()
 		self.s = s
 
 		self.sensor_data = []
 		self.sensor_list = []
-		try:
-			self.sensor_data_ser = serial.Serial(glob.glob('/dev/ttyUSB*')[0], 115200)
-			print("/dev/ttyUSB* connected succeed")
-		except:
-			self.sensor_data_ser = None
+		self.sensor_data_ser = None
+		if extra_sensor is None:
+			extra_sensor = f['base_config']['extra_sensor']
+		if extra_sensor:
+			try:
+				self.sensor_data_ser = serial.Serial(glob.glob('/dev/ttyUSB*')[0], 115200, exclusive=True)
+				print("/dev/ttyUSB* connected succeed")
+			except (IndexError, serial.SerialException) as exc:
+				print(f"[base_ctrl] extra sensor unavailable: {exc}")
 		self.sensor_data_max_len = 51
 
-		try:
-			self.lidar_ser = serial.Serial(glob.glob('/dev/ttyACM*')[0], 230400, timeout=1)
-			print("/dev/ttyACM* connected succeed")
-		except:
-			self.lidar_ser = None
+		self.lidar_ser = None
+		if use_lidar is None:
+			use_lidar = f['base_config']['use_lidar']
+		if use_lidar:
+			try:
+				self.lidar_ser = serial.Serial(glob.glob('/dev/ttyACM*')[0], 230400, timeout=1, exclusive=True)
+				print("/dev/ttyACM* connected succeed")
+			except (IndexError, serial.SerialException) as exc:
+				print(f"[base_ctrl] lidar unavailable: {exc}")
 		self.ANGLE_PER_FRAME = 12
 		self.HEADER = 0x54
 		self.lidar_angles = []
@@ -128,14 +136,14 @@ class ReadLine:
 			self.lidar_distances.clear()
 		except Exception as e:
 			print(f"[base_ctrl.lidar_data_recv] error: {e}")
-			self.lidar_ser = serial.Serial(glob.glob('/dev/ttyACM*')[0], 230400, timeout=1)
+			self.lidar_ser = serial.Serial(glob.glob('/dev/ttyACM*')[0], 230400, timeout=1, exclusive=True)
 
 
 class BaseController:
 
-	def __init__(self, uart_dev_set, buad_set):
+	def __init__(self, uart_dev_set, buad_set, use_lidar=None, extra_sensor=None):
 		self.ser = serial.Serial(uart_dev_set, buad_set, timeout=1)
-		self.rl = ReadLine(self.ser)
+		self.rl = ReadLine(self.ser, use_lidar=use_lidar, extra_sensor=extra_sensor)
 		self.command_queue = queue.Queue()
 		self.command_thread = threading.Thread(target=self.process_commands, daemon=True)
 		self.command_thread.start()
@@ -146,8 +154,8 @@ class BaseController:
 		self.data_buffer = None
 		self.base_data = None
 
-		self.use_lidar = f['base_config']['use_lidar']
-		self.extra_sensor = f['base_config']['extra_sensor']
+		self.use_lidar = f['base_config']['use_lidar'] if use_lidar is None else use_lidar
+		self.extra_sensor = f['base_config']['extra_sensor'] if extra_sensor is None else extra_sensor
 		
 
 	def feedback_data(self):

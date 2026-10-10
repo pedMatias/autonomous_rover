@@ -35,6 +35,7 @@ The Pi services use these default TCP ports:
 | `8765` | host to Pi | command server | newline-delimited JSON velocity commands |
 | `8766` | Pi to host | telemetry server | newline-delimited JSON telemetry |
 | `8770` | Pi to host | camera server | length-prefixed RGB-D packets |
+| `8771` | Pi to host | lidar server | versioned binary 360-bin scans; ROS bridge publishes `/scan` |
 
 ## Build and run
 
@@ -83,6 +84,14 @@ can brown the rover out. Keep requested speeds above that band -- minimum
 forward speed is 0.35 m/s. See `docs/rover_low_speed_stall.md`.
 
 ### Publications
+
+The optional `rover_lidar_bridge` executable independently connects to Pi TCP
+8771 and publishes `/scan` (`sensor_msgs/msg/LaserScan`, sensor-data QoS) plus
+`/rover/lidar/status` (JSON `std_msgs/msg/String`). It uses acquisition stamps,
+rejects stale/future packets and retains only the latest scan. The
+`rover_navigation_gate` executable routes Nav2 commands to `/cmd_vel_safe`;
+motion is disabled by default. See the
+[lidar integration and testing guide](../../../docs/lidar_ros2_nav2.md).
 
 | Topic | Type | Notes |
 | --- | --- | --- |

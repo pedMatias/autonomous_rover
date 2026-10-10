@@ -1,0 +1,16 @@
+preview_config: rover_preview.yaml
+calibration_config: calibration.yaml
+agent_config: rover_agent.yaml
+# Host freshness only; device exposure age is reported separately when known.
+input_timeout_s: 0.6
+heartbeat_timeout_s: 2.0
+control_hz: 10.0
+stop_speed_mps: 0.02
+stopped_samples: 3
+progress_timeout_s: 15.0
+progress_distance_m: 0.1
+# Keep each commanded wheel out of the observed low-speed stall band.
+min_wheel_speed_mps: 0.35
+forward_speed_mps: 0.4
+log_queue_size: 64
+disk_reserve_bytes: 1073741824

@@ -16,6 +16,12 @@ Pi services -> rover_bridge -> compressed ROS2 RGB-D + /odom + /tf
 
 ## Contents
 
+The optional lidar workflow adds `lidar.launch.py`, `lidar_mapping.launch.py`
+and `lidar_navigation.launch.py`. Live and GCS bringup support
+`enable_lidar:=true` with all six measured `laser_*` mounting arguments.
+Navigation starts its own bringup and defaults to zero-only motor output.
+See the [step-by-step test guide](../../../docs/lidar_ros2_nav2.md).
+
 | Path | Purpose |
 | --- | --- |
 | [launch/live_bringup.launch.py](launch/live_bringup.launch.py) | Start `rover_bridge` and the static base-to-camera transform. |

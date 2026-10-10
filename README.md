@@ -14,6 +14,11 @@ copy of the bridge or service configuration by hand.
 
 ## Architecture
 
+For the independent lidar stream, ROS `/scan`, SLAM Toolbox mapping and
+default-disabled Nav2 command gate, see the
+[lidar setup and test guide](docs/lidar_ros2_nav2.md). The sensor protocol and
+mounting pose must be verified before testing; camera sharing remains unchanged.
+
 ```text
 WSL2 / Windows PC                              Raspberry Pi 5
 -----------------                              --------------
@@ -24,6 +29,7 @@ ROS2 nodes                                      rover_agent.py
     rover_bridge                                  JPEG + compressedDepth PNG over TCP
         /camera/color/image_raw/compressed
         /camera/depth/image_raw/compressedDepth
+        /scan <- TCP 8771 <- D500 via CP2102
         |                                               ^
         | TCP 8765: cmd_vel JSON                         |
         | TCP 8766: telemetry JSON                       |
@@ -57,12 +63,20 @@ for both RGB-D assembly and the outer `/odom` plus RGB-D mapper input.
 | `rover_agent.py` | Pi | Production motor/telemetry gateway | Commands `8765`, telemetry `8766`, UART |
 | `camera_stream.py` | Pi | OAK-D RGB-D network stream | Camera `8770` |
 | `python -m rover_preview` | Pi | Camera-only local planner preview and debug dashboard; no motor commands | Browser `5001`, OAK-D |
+| `python -m rover_autonomy` | Pi | Local depth/goal autonomy with GCS and run logs; real OAK-D/UART by default | Loopback browser `5002` |
 | `rover_bridge` | WSL2 | ROS2 network adapter | `/cmd_vel` and sensor topics |
 | `recorder/record.py` | Pi | Standalone synchronized bag recorder | UART and OAK-D |
 
 Only one process may own `/dev/ttyAMA0` at a time. Never run `app.py`,
 `rover_agent.py`, `record.py`, or a UART diagnostic/calibration script together.
-The factory app and production agent are mutually exclusive.
+The factory app and production agent are mutually exclusive. The autonomy
+application replaces them in its default live-hardware mode. `--demo` and
+`--mock-motors` are explicit non-driving test modes.
+
+For Pi setup and use, see
+[autonomy, GCS and run logging](docs/rover_autonomy.md). Its normal launch owns
+the live OAK-D and motor UART; its GCS and bounded background logging are core
+features. Synthetic and mocked-motor modes require explicit options.
 
 For a simpler Pi-local, ROS-free experiment, see the
 [no-motion preview dashboard](docs/rover_preview.md). It uses raw OAK-D depth

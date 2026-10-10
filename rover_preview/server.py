@@ -27,6 +27,9 @@ def create_app(runtime: PreviewRuntime) -> Flask:
 
     @app.before_request
     def validate_write():
+        if request.content_length is not None and request.content_length > app.config["MAX_CONTENT_LENGTH"]:
+            app.logger.warning("Rejected oversized preview request")
+            return jsonify(error="request body must not exceed 1024 bytes"), 413
         if request.method == "POST":
             origin = request.headers.get("Origin")
             if request.headers.get("X-Rover-Preview") != "1" or (

@@ -1,0 +1,20 @@
+[Unit]
+Description=UGV Rover independent lidar stream
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=ws
+WorkingDirectory=/home/ws/ugv_rpi
+EnvironmentFile=/home/ws/ugv_rpi/config/lidar.env
+ExecStart=/home/ws/ugv_rpi/ugv-env/bin/python -m rover_lidar --protocol ${LIDAR_PROTOCOL} --device ${LIDAR_DEVICE} --direction ${LIDAR_DIRECTION} --range-min ${LIDAR_RANGE_MIN} --range-max ${LIDAR_RANGE_MAX}
+Restart=on-failure
+RestartSec=3
+SupplementaryGroups=dialout
+Environment=PYTHONUNBUFFERED=1
+NoNewPrivileges=true
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

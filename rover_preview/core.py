@@ -156,6 +156,8 @@ class CameraFrame:
     captured_at: float | None
     dequeued_at: float
     source: str
+    source_sequence: int | None = None
+    camera_metadata: dict | None = None
 
 
 @dataclass(frozen=True)

@@ -6,7 +6,8 @@ package_name = "rover_bridge"
 setup(
     name=package_name,
     version="0.1.0",
-    packages=find_packages(exclude=["test"]),
+    packages=find_packages(exclude=["test"]) + ["rover_lidar"],
+    package_dir={"rover_lidar": "../../../rover_lidar"},
     data_files=[
         (
             "share/ament_index/resource_index/packages",
@@ -30,6 +31,8 @@ setup(
         "console_scripts": [
             "rover_bridge = rover_bridge.node:main",
             "rover_teleop = rover_bridge.teleop:main",
+            "rover_lidar_bridge = rover_bridge.lidar:main",
+            "rover_navigation_gate = rover_bridge.navigation_gate:main",
         ],
     },
 )

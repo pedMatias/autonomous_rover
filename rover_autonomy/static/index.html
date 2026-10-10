@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Rover autonomy GCS</title>
+  <link rel="stylesheet" href="/static/dashboard.css">
+  <script src="/static/dashboard.js" defer></script>
+</head>
+<body>
+  <h1>Rover autonomy GCS</h1>
+  <p id="mode">Connecting. Motor mode is not yet known.</p>
+  <p id="controller-state" role="status">Controller state unavailable.</p>
+  <p>Goal acceptance starts the controller. Keep the physical stop accessible.</p>
+  <form id="heartbeat-config">
+    <label>Stop goal if GCS heartbeat is missing for
+      <input id="heartbeat-timeout" type="number" min="1" max="60" step="0.5" value="2" required> seconds
+    </label>
+    <label><input id="heartbeat-disabled" type="checkbox"> Disable heartbeat-loss stop</label>
+    <button type="submit">Apply heartbeat setting</button>
+  </form>
+  <p id="heartbeat-warning" class="warning" hidden>
+    Heartbeat-loss stop is DISABLED. Losing the GCS or SSH connection will not stop an active goal.
+  </p>
+  <form id="goal">
+    <label>Forward x (m) <input id="x" type="number" step="any" min="0.051" value="1" required></label>
+    <label>Left y (m) <input id="y" type="number" step="any" value="0" required></label>
+    <button type="submit">Start goal</button>
+  </form>
+  <button id="stop" type="button">STOP</button>
+  <button id="cancel" type="button">Cancel goal</button>
+  <button id="freeze" type="button">Freeze debug view</button>
+  <p id="request-status" role="status"></p>
+  <p id="image-status" role="status">Waiting for a matched image and decision.</p>
+  <div class="views">
+    <img id="camera" alt="Sequence-matched RGB and aligned depth" hidden>
+    <canvas id="map" width="600" height="450" aria-label="Top-down points and candidate paths"></canvas>
+  </div>
+  <h2>Decision</h2>
+  <pre id="decision"></pre>
+  <h2>Live controller, feedback and logging</h2>
+  <pre id="status"></pre>
+</body>
+</html>

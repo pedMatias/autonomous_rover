@@ -1,0 +1,7 @@
+Metadata-Version: 2.1
+Name: rover-avoidance
+Version: 0.1.0
+Summary: Experimental short-goal navigation with depth obstacle avoidance.
+Maintainer: Rover project
+Maintainer-email: pedro_mi_guel_@hotmail.com
+License: GPL-3.0-only

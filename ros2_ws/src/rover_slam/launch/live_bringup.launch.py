@@ -1,5 +1,7 @@
 from launch import LaunchDescription
-from launch.actions import DeclareLaunchArgument
+from launch.actions import DeclareLaunchArgument, IncludeLaunchDescription
+from launch.conditions import IfCondition
+from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.substitutions import LaunchConfiguration, PathJoinSubstitution
 from launch_ros.actions import Node
 from launch_ros.substitutions import FindPackageShare
@@ -26,6 +28,17 @@ def generate_launch_description():
             "camera_info_topic", default_value="/oak/rgb/camera_info"
         ),
         DeclareLaunchArgument("base_frame", default_value="base_link"),
+        DeclareLaunchArgument("cmd_vel_topic", default_value="/cmd_vel"),
+        DeclareLaunchArgument("enable_lidar", default_value="false"),
+        DeclareLaunchArgument(
+            "lidar_config", default_value=PathJoinSubstitution([
+                FindPackageShare("rover_slam"), "config", "lidar.yaml",
+            ]),
+        ),
+        *[
+            DeclareLaunchArgument(f"laser_{axis}", default_value="")
+            for axis in ("x", "y", "z", "roll", "pitch", "yaw")
+        ],
         DeclareLaunchArgument(
             "camera_frame", default_value="oak_rgb_camera_optical_frame"
         ),
@@ -45,8 +58,26 @@ def generate_launch_description():
                 {
                     "pi_host": pi_host,
                     "camera_info_topic": camera_info_topic,
+                    "cmd_vel_topic": LaunchConfiguration("cmd_vel_topic"),
+                    "base_frame_id": base_frame,
+                    "frame_id": camera_frame,
                 },
             ],
+        ),
+        IncludeLaunchDescription(
+            PythonLaunchDescriptionSource(PathJoinSubstitution([
+                FindPackageShare("rover_slam"), "launch", "lidar.launch.py",
+            ])),
+            condition=IfCondition(LaunchConfiguration("enable_lidar")),
+            launch_arguments={
+                "pi_host": pi_host,
+                "lidar_config": LaunchConfiguration("lidar_config"),
+                "base_frame": base_frame,
+                **{
+                    f"laser_{axis}": LaunchConfiguration(f"laser_{axis}")
+                    for axis in ("x", "y", "z", "roll", "pitch", "yaw")
+                },
+            }.items(),
         ),
         Node(
             package="tf2_ros",

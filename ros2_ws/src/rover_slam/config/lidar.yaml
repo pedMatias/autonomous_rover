@@ -1,0 +1,8 @@
+rover_lidar_bridge:
+  ros__parameters:
+    port: 8771
+    scan_topic: /scan
+    frame_id: laser_frame
+    max_age_s: 0.5
+    future_tolerance_s: 0.05
+    reconnect_delay_s: 1.0
